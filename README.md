@@ -1,6 +1,6 @@
 # Self-service subscription fro Mediahelp
 
-一个自助求片网站，用户可以搜索影片并自动发送请求到 Telegram 群组。
+一个基于Mediahelp的自助求片网站，用户可以搜索影片并自动发送请求到MH机器人或者绑定了MH机器人的Telegram 群组。
 
 ## 功能特点
 
