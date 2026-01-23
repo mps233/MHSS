@@ -1,6 +1,6 @@
 {
-  "name": "汤泡饭 - 自助求片",
-  "short_name": "汤泡饭",
+  "name": "MHSS - 自助订阅",
+  "short_name": "MHSS自助订阅",
   "description": "搜索你想看的影片，一键订阅资源",
   "start_url": "/",
   "display": "standalone",
