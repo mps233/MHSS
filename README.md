@@ -91,7 +91,7 @@ npm start
      - TG_API_ID=你的API_ID
      - TG_API_HASH=你的API_HASH
      - TG_PHONE_NUMBER=你的手机号（如+8613800138000）
-     - TG_GROUP_ID=目标群组ID（如@groupname）
+     - TG_GROUP_ID=目标群组ID（如-123456789）
      - TG_SESSION=你的session_string
      - EMBY_URL=你的Emby服务器地址（可选）
      - EMBY_API_KEY=你的Emby_API_KEY（可选）
