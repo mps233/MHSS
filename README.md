@@ -1,78 +1,68 @@
 # 自助求片网站
 
-一个基于 React + Chakra UI 的自助求片网站，用户可以搜索影片并自动发送请求到 Telegram。
+一个自助求片网站，用户可以搜索影片并自动发送请求到 Telegram 群组。
 
 ## 功能特点
 
-- 🎨 使用 Chakra UI 组件库，界面精美
 - 🔍 集成 TMDB API，实时搜索影视剧
 - 🤖 使用 Telegram 用户账号自动发送请求并点击确认
+- 📊 显示热门电影和电视剧
 - 📱 完全响应式设计，支持移动端
-- ⚡ React 单页应用，流畅体验
+- 💾 记录已请求的影片，避免重复请求
+- 📈 支持 Emby 库统计和入库趋势展示
 
-## 安装步骤
+## 快速开始
 
-1. 安装后端依赖：
+### 1. 安装依赖
+
 ```bash
 npm install
 ```
 
-2. 安装前端依赖：
-```bash
-cd client
-npm install
-cd ..
+### 2. 配置环境变量
+
+复制 `.env.example` 为 `.env`，并填写以下信息：
+
+```env
+# TMDB API Key（必需）
+TMDB_API_KEY=你的TMDB_API_KEY
+
+# Telegram 配置（必需）
+TG_API_ID=你的API_ID
+TG_API_HASH=你的API_HASH
+TG_PHONE_NUMBER=你的手机号（如+8613800138000）
+TG_GROUP_ID=目标群组ID或用户名（如@groupname）
+TG_SESSION=你的session_string（首次启动后获取）
+
+# Emby 配置（可选）
+EMBY_URL=你的Emby服务器地址
+EMBY_API_KEY=你的Emby_API_KEY
+
+# 服务器端口（可选）
+PORT=3000
 ```
 
-3. 配置环境变量：
-   - 复制 `.env.example` 为 `.env`
-   - 填写以下信息：
-     - `TMDB_API_KEY`: 从 https://www.themoviedb.org/settings/api 获取
-     - `TG_API_ID` 和 `TG_API_HASH`: 从 https://my.telegram.org/apps 获取
-     - `TG_PHONE_NUMBER`: 你的 Telegram 手机号（带国际区号，如 +8613800138000）
-     - `TG_GROUP_ID`: 目标群组的用户名（如 @groupname）或 ID
+### 3. 首次启动
 
-4. 首次启动后端服务器：
-```bash
-npm start
-```
-   - 首次启动会要求输入 Telegram 验证码
-   - 如果有两步验证，还需要输入密码
-   - 登录成功后会显示 Session String，复制它
-
-5. 将 Session String 添加到 `.env` 文件：
-```
-TG_SESSION=你的session_string
-```
-
-6. 启动前端开发服务器（新终端窗口）：
-```bash
-cd client
-npm start
-```
-
-7. 访问 http://localhost:3001
-
-## 生产环境部署
-
-1. 构建前端：
-```bash
-cd client
-npm run build
-cd ..
-```
-
-2. 设置环境变量：
-```bash
-export NODE_ENV=production
-```
-
-3. 启动服务器：
 ```bash
 npm start
 ```
 
-4. 访问 http://localhost:3000
+首次启动时：
+- 会要求输入 Telegram 验证码
+- 如果有两步验证，还需要输入密码
+- 登录成功后会显示 Session String
+- 将 Session String 复制到 `.env` 文件的 `TG_SESSION` 变量中
+
+### 4. 后续启动
+
+配置好 `TG_SESSION` 后，直接运行：
+
+```bash
+npm start
+```
+
+访问 http://localhost:3000
 
 ## 获取配置信息
 
@@ -92,8 +82,13 @@ npm start
 - 如果群组有公开用户名，直接使用 `@groupname`
 - 如果是私有群组，使用数字 ID（负数，如 `-1001234567890`）
 
+### Emby 配置（可选）
+如果你有 Emby 服务器，可以配置以显示库统计信息：
+- `EMBY_URL`: Emby 服务器地址（如 http://localhost:8096）
+- `EMBY_API_KEY`: 在 Emby 设置中生成的 API 密钥
+
 ## 技术栈
 
-- 前端：React, Chakra UI, Framer Motion
 - 后端：Node.js, Express
-- API：TMDB API, Telegram Client API (MTProto)
+- 前端：原生 HTML/CSS/JavaScript
+- API：TMDB API, Telegram Client API (MTProto), Emby API
