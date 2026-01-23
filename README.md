@@ -1,4 +1,4 @@
-# 自助求片网站
+# Self-service subscription fro Mediahelp
 
 一个自助求片网站，用户可以搜索影片并自动发送请求到 Telegram 群组。
 
