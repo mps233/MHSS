@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   mhss:
-    build: .
+    image: mps233/mhss:latest
     container_name: mhss-app
     restart: unless-stopped
     ports:
