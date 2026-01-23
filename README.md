@@ -98,8 +98,47 @@ npm start
 - `EMBY_URL`: Emby 服务器地址（如 http://localhost:8096）
 - `EMBY_API_KEY`: 在 Emby 设置中生成的 API 密钥
 
+## 部署到 Railway
+
+### 1. 准备工作
+1. 注册 [Railway](https://railway.app/) 账号
+2. 安装 Railway CLI（可选）：`npm i -g @railway/cli`
+
+### 2. 通过 GitHub 部署（推荐）
+1. 确保代码已推送到 GitHub
+2. 访问 [Railway](https://railway.app/)
+3. 点击 "New Project" → "Deploy from GitHub repo"
+4. 选择你的 MHSS 仓库
+5. Railway 会自动检测并部署
+
+### 3. 配置环境变量
+在 Railway 项目的 Variables 标签页中添加：
+```
+TMDB_API_KEY=你的TMDB_API_KEY
+TG_API_ID=你的API_ID
+TG_API_HASH=你的API_HASH
+TG_PHONE_NUMBER=你的手机号
+TG_GROUP_ID=目标群组ID
+TG_SESSION=你的session_string
+EMBY_URL=你的Emby服务器地址（可选）
+EMBY_API_KEY=你的Emby_API_KEY（可选）
+PORT=3000
+```
+
+### 4. 获取 TG_SESSION
+首次部署时 TG_SESSION 为空，需要：
+1. 在 Railway 的 Deployments 标签查看日志
+2. 会提示输入验证码（但无法在 Railway 输入）
+3. 建议先在本地运行 `npm start` 获取 SESSION
+4. 将 SESSION 添加到 Railway 环境变量
+5. 重新部署
+
+### 5. 访问应用
+部署成功后，Railway 会提供一个公开 URL，点击即可访问
+
 ## 技术栈
 
 - 后端：Node.js, Express
 - 前端：原生 HTML/CSS/JavaScript
 - API：TMDB API, Telegram Client API (MTProto), Emby API
+- 部署：Railway
