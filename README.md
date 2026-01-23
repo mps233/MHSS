@@ -100,7 +100,7 @@ npm start
 
 ```bash
 # 拉取镜像
-docker pull 你的用户名/mhss:latest
+docker pull miaona/mhss:latest
 
 # 运行容器
 docker run -d \
@@ -108,7 +108,7 @@ docker run -d \
   -p 3000:3000 \
   --env-file .env \
   -v $(pwd)/requested-movies.json:/app/requested-movies.json \
-  你的用户名/mhss:latest
+  miaona/mhss:latest
 ```
 
 ### 使用 Docker Compose（推荐）

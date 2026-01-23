@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   mhss:
-    image: mps233/mhss:latest
+    build: .
+    # image: miaona/mhss:latest  # 等镜像构建成功后再启用
     container_name: mhss-app
     restart: unless-stopped
     ports:
