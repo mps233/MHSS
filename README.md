@@ -3,10 +3,13 @@
 一个基于Mediahelp的自助求片网站，用户可以搜索影片并自动发送请求到MH机器人或者绑定了MH机器人的Telegram 群组。
 
 ## 项目截图
-![项目截图1](image/1.png)
-![项目截图2](image/2.png)
-![项目截图3](image/3.png)
-![项目截图4](image/4.png)
+
+### PC端
+<img src="image/1.png" width="70%" />
+<img src="image/2.png" width="70%" />
+
+### 移动端
+<img src="image/3.png" width="30%" /> <img src="image/4.png" width="30%" />
 
 
 
