@@ -75,7 +75,99 @@ npm start
 
 访问 http://localhost:3000
 
-## 获取配置信息
+## Docker 部署
+
+### 配置 GitHub Actions 自动构建（首次设置）
+
+1. **在 Docker Hub 创建仓库**
+   - 访问 https://hub.docker.com/
+   - 创建一个名为 `mhss` 的仓库
+
+2. **在 GitHub 仓库设置 Secrets**
+   - 进入你的 GitHub 仓库
+   - Settings → Secrets and variables → Actions
+   - 添加以下 secrets：
+     - `DOCKER_USERNAME`: 你的 Docker Hub 用户名
+     - `DOCKER_PASSWORD`: 你的 Docker Hub 密码或 Access Token
+
+3. **推送代码触发构建**
+   - 每次推送到 main 分支会自动构建并推送镜像
+   - 也可以在 Actions 标签手动触发
+
+### 使用预构建的 Docker 镜像
+
+如果已经配置了自动构建，可以直接使用：
+
+```bash
+# 拉取镜像
+docker pull 你的用户名/mhss:latest
+
+# 运行容器
+docker run -d \
+  --name mhss \
+  -p 3000:3000 \
+  --env-file .env \
+  -v $(pwd)/requested-movies.json:/app/requested-movies.json \
+  你的用户名/mhss:latest
+```
+
+### 使用 Docker Compose（推荐）
+
+1. **确保已安装 Docker 和 Docker Compose**
+
+2. **配置环境变量**
+   - 复制 `.env.example` 为 `.env`
+   - 填写所有必需的环境变量
+
+3. **构建并启动容器**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **查看日志**
+   ```bash
+   docker-compose logs -f
+   ```
+
+5. **停止容器**
+   ```bash
+   docker-compose down
+   ```
+
+### 使用 Docker 命令
+
+1. **构建镜像**
+   ```bash
+   docker build -t mhss-app .
+   ```
+
+2. **运行容器**
+   ```bash
+   docker run -d \
+     --name mhss \
+     -p 3000:3000 \
+     --env-file .env \
+     -v $(pwd)/requested-movies.json:/app/requested-movies.json \
+     mhss-app
+   ```
+
+3. **查看日志**
+   ```bash
+   docker logs -f mhss
+   ```
+
+4. **停止容器**
+   ```bash
+   docker stop mhss
+   docker rm mhss
+   ```
+
+## 技术栈
+
+- 后端：Node.js, Express
+- 前端：原生 HTML/CSS/JavaScript
+- API：TMDB API, Telegram Client API (MTProto), Emby API
+- 容器化：Docker
 
 ### TMDB API Key
 1. 访问 https://www.themoviedb.org/
@@ -98,47 +190,3 @@ npm start
 - `EMBY_URL`: Emby 服务器地址（如 http://localhost:8096）
 - `EMBY_API_KEY`: 在 Emby 设置中生成的 API 密钥
 
-## 部署到 Railway
-
-### 1. 准备工作
-1. 注册 [Railway](https://railway.app/) 账号
-2. 安装 Railway CLI（可选）：`npm i -g @railway/cli`
-
-### 2. 通过 GitHub 部署（推荐）
-1. 确保代码已推送到 GitHub
-2. 访问 [Railway](https://railway.app/)
-3. 点击 "New Project" → "Deploy from GitHub repo"
-4. 选择你的 MHSS 仓库
-5. Railway 会自动检测并部署
-
-### 3. 配置环境变量
-在 Railway 项目的 Variables 标签页中添加：
-```
-TMDB_API_KEY=你的TMDB_API_KEY
-TG_API_ID=你的API_ID
-TG_API_HASH=你的API_HASH
-TG_PHONE_NUMBER=你的手机号
-TG_GROUP_ID=目标群组ID
-TG_SESSION=你的session_string
-EMBY_URL=你的Emby服务器地址（可选）
-EMBY_API_KEY=你的Emby_API_KEY（可选）
-PORT=3000
-```
-
-### 4. 获取 TG_SESSION
-首次部署时 TG_SESSION 为空，需要：
-1. 在 Railway 的 Deployments 标签查看日志
-2. 会提示输入验证码（但无法在 Railway 输入）
-3. 建议先在本地运行 `npm start` 获取 SESSION
-4. 将 SESSION 添加到 Railway 环境变量
-5. 重新部署
-
-### 5. 访问应用
-部署成功后，Railway 会提供一个公开 URL，点击即可访问
-
-## 技术栈
-
-- 后端：Node.js, Express
-- 前端：原生 HTML/CSS/JavaScript
-- API：TMDB API, Telegram Client API (MTProto), Emby API
-- 部署：Railway
