@@ -1,0 +1,18 @@
+{
+  "name": "汤泡饭 - 自助求片",
+  "short_name": "汤泡饭",
+  "description": "搜索你想看的影片，一键订阅资源",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f1e",
+  "theme_color": "#a855f7",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/256.webp",
+      "sizes": "256x256",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ]
+}
