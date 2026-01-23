@@ -77,49 +77,27 @@ npm start
 
 ## Docker 部署
 
-### 配置 GitHub Actions 自动构建（首次设置）
-
-1. **在 Docker Hub 创建仓库**
-   - 访问 https://hub.docker.com/
-   - 创建一个名为 `mhss` 的仓库
-
-2. **在 GitHub 仓库设置 Secrets**
-   - 进入你的 GitHub 仓库
-   - Settings → Secrets and variables → Actions
-   - 添加以下 secrets：
-     - `DOCKER_USERNAME`: 你的 Docker Hub 用户名
-     - `DOCKER_PASSWORD`: 你的 Docker Hub 密码或 Access Token
-
-3. **推送代码触发构建**
-   - 每次推送到 main 分支会自动构建并推送镜像
-   - 也可以在 Actions 标签手动触发
-
-### 使用预构建的 Docker 镜像
-
-如果已经配置了自动构建，可以直接使用：
-
-```bash
-# 拉取镜像
-docker pull miaona/mhss:latest
-
-# 运行容器
-docker run -d \
-  --name mhss \
-  -p 3000:3000 \
-  --env-file .env \
-  -v $(pwd)/requested-movies.json:/app/requested-movies.json \
-  miaona/mhss:latest
-```
-
 ### 使用 Docker Compose（推荐）
 
-1. **确保已安装 Docker 和 Docker Compose**
+1. **下载 docker-compose.yml**
+   ```bash
+   wget https://raw.githubusercontent.com/mps233/MHSS/main/docker-compose.yml
+   ```
 
-2. **配置环境变量**
-   - 复制 `.env.example` 为 `.env`
-   - 填写所有必需的环境变量
+2. **编辑 docker-compose.yml，填写环境变量**
+   ```yaml
+   environment:
+     - TMDB_API_KEY=你的TMDB_API_KEY
+     - TG_API_ID=你的API_ID
+     - TG_API_HASH=你的API_HASH
+     - TG_PHONE_NUMBER=你的手机号（如+8613800138000）
+     - TG_GROUP_ID=目标群组ID（如@groupname）
+     - TG_SESSION=你的session_string
+     - EMBY_URL=你的Emby服务器地址（可选）
+     - EMBY_API_KEY=你的Emby_API_KEY（可选）
+   ```
 
-3. **构建并启动容器**
+3. **启动容器**
    ```bash
    docker-compose up -d
    ```
@@ -136,31 +114,19 @@ docker run -d \
 
 ### 使用 Docker 命令
 
-1. **构建镜像**
-   ```bash
-   docker build -t mhss-app .
-   ```
-
-2. **运行容器**
-   ```bash
-   docker run -d \
-     --name mhss \
-     -p 3000:3000 \
-     --env-file .env \
-     -v $(pwd)/requested-movies.json:/app/requested-movies.json \
-     mhss-app
-   ```
-
-3. **查看日志**
-   ```bash
-   docker logs -f mhss
-   ```
-
-4. **停止容器**
-   ```bash
-   docker stop mhss
-   docker rm mhss
-   ```
+```bash
+docker run -d \
+  --name mhss \
+  -p 3000:3000 \
+  -e TMDB_API_KEY=你的值 \
+  -e TG_API_ID=你的值 \
+  -e TG_API_HASH=你的值 \
+  -e TG_PHONE_NUMBER=你的值 \
+  -e TG_GROUP_ID=你的值 \
+  -e TG_SESSION=你的值 \
+  -v $(pwd)/requested-movies.json:/app/requested-movies.json \
+  miaona/mhss:latest
+```
 
 ## 技术栈
 

@@ -2,24 +2,21 @@ version: '3.8'
 
 services:
   mhss:
-    build: .
-    # image: miaona/mhss:latest  # 等镜像构建成功后再启用
+    image: miaona/mhss:latest
     container_name: mhss-app
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - TMDB_API_KEY=${TMDB_API_KEY}
-      - TG_API_ID=${TG_API_ID}
-      - TG_API_HASH=${TG_API_HASH}
-      - TG_PHONE_NUMBER=${TG_PHONE_NUMBER}
-      - TG_GROUP_ID=${TG_GROUP_ID}
-      - TG_SESSION=${TG_SESSION}
-      - EMBY_URL=${EMBY_URL}
-      - EMBY_API_KEY=${EMBY_API_KEY}
+      - TMDB_API_KEY=你的TMDB_API_KEY
+      - TG_API_ID=你的API_ID
+      - TG_API_HASH=你的API_HASH
+      - TG_PHONE_NUMBER=你的手机号
+      - TG_GROUP_ID=目标群组ID
+      - TG_SESSION=你的session_string
+      - EMBY_URL=你的Emby服务器地址
+      - EMBY_API_KEY=你的Emby_API_KEY
       - PORT=3000
     volumes:
       - ./requested-movies.json:/app/requested-movies.json
-    env_file:
-      - .env
