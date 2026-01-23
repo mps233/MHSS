@@ -100,19 +100,6 @@ npm start
 # 复制这个SESSION字符串
 ```
 
-**方法2：使用临时容器获取**
-```bash
-# 下载docker-compose.yml
-wget https://raw.githubusercontent.com/mps233/MHSS/main/docker-compose.yml
-
-# 编辑docker-compose.yml，TG_SESSION留空
-# 启动容器
-docker-compose up
-
-# 查看日志，会提示输入验证码
-# 但Docker无法交互输入，所以建议用方法1
-```
-
 获取到SESSION后，填入docker-compose.yml的TG_SESSION字段，然后正式部署。
 
 ### 使用 Docker Compose（推荐）
@@ -130,7 +117,7 @@ docker-compose up
      - TG_API_HASH=你的API_HASH
      - TG_PHONE_NUMBER=你的手机号（如+8613800138000）
      - TG_GROUP_ID=目标群组ID（如-123456789）
-     - TG_SESSION=你的session_string
+     - TG_SESSION=你的session_string(第一步的时候获取到的Session String)
      - EMBY_URL=你的Emby服务器地址（可选）
      - EMBY_API_KEY=你的Emby_API_KEY（可选）
    ```
