@@ -1,3 +1,49 @@
+// 认证检查
+const token = localStorage.getItem('token');
+if (!token) {
+  window.location.href = '/login';
+}
+
+// 验证token
+async function verifyToken() {
+  try {
+    const response = await fetch('/api/verify', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (!response.ok) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+  } catch (error) {
+    console.error('验证失败:', error);
+  }
+}
+
+verifyToken();
+
+// API请求辅助函数
+async function fetchWithAuth(url, options = {}) {
+  const headers = {
+    ...options.headers,
+    'Authorization': `Bearer ${token}`
+  };
+  
+  const response = await fetch(url, { ...options, headers });
+  
+  if (response.status === 401) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+    throw new Error('未授权');
+  }
+  
+  return response;
+}
+
 const searchInput = document.getElementById('searchInput');
 const suggestions = document.getElementById('suggestions');
 const totalRequests = document.getElementById('totalRequests');
@@ -49,7 +95,7 @@ function updateRequestCount(count) {
 // 加载 Emby 影片库统计
 async function loadEmbyStats() {
   try {
-    const response = await fetch('/api/emby/stats');
+    const response = await fetchWithAuth('/api/emby/stats');
     const data = await response.json();
     
     if (data.total !== null) {
@@ -129,7 +175,7 @@ window.addEventListener('resize', syncCardHeights);
 // 加载最近请求
 async function loadRecentRequests() {
   try {
-    const response = await fetch('/api/recent-requests');
+    const response = await fetchWithAuth('/api/recent-requests');
     const data = await response.json();
     
     if (data.requests && data.requests.length > 0) {
@@ -143,10 +189,14 @@ async function loadRecentRequests() {
 function displayRecentCarousel(requests) {
   const recentItems = requests.slice(0, 20); // 增加到20条
   
-  // 复制一份用于无缝循环
-  const doubledItems = [...recentItems, ...recentItems];
+  // 判断是否需要滚动
+  const minItems = window.innerWidth <= 640 ? 2 : 3;
+  const needsScroll = recentItems.length > minItems;
   
-  recentCarousel.innerHTML = doubledItems.map(item => {
+  // 只有需要滚动时才复制一份用于无缝循环
+  const displayItems = needsScroll ? [...recentItems, ...recentItems] : recentItems;
+  
+  recentCarousel.innerHTML = displayItems.map(item => {
     const typeText = item.mediaType === 'movie' ? '电影' : '电视剧';
     const timeAgo = getTimeAgo(item.requestedAt);
     
@@ -174,6 +224,14 @@ function startCarousel(totalItems, resetIndex = true) {
   // 清除之前的定时器
   if (carouselInterval) {
     clearInterval(carouselInterval);
+  }
+  
+  // 如果项目数量不足，不启动滚动
+  // 移动端显示2个，桌面端显示3个
+  const minItems = window.innerWidth <= 640 ? 2 : 3;
+  if (totalItems <= minItems) {
+    console.log(`项目数量(${totalItems})不足，不启动滚动`);
+    return;
   }
   
   // 获取单个项目的高度（包括gap）
@@ -223,8 +281,10 @@ if (recentCarousel) {
   
   recentCarousel.addEventListener('mouseleave', () => {
     const items = recentCarousel.querySelectorAll('.recent-item');
-    const totalItems = items.length / 2; // 因为复制了一份
-    if (totalItems > 0) {
+    // 检查是否有重复项（用于无缝循环）
+    const minItems = window.innerWidth <= 640 ? 2 : 3;
+    const totalItems = items.length > minItems * 2 ? items.length / 2 : items.length;
+    if (totalItems > minItems) {
       startCarousel(totalItems, false); // 不重置索引，从当前位置继续
     }
   });
@@ -235,8 +295,9 @@ window.addEventListener('resize', () => {
   if (carouselInterval) {
     clearInterval(carouselInterval);
     const items = recentCarousel.querySelectorAll('.recent-item');
-    const totalItems = items.length / 2;
-    if (totalItems > 0) {
+    const minItems = window.innerWidth <= 640 ? 2 : 3;
+    const totalItems = items.length > minItems * 2 ? items.length / 2 : items.length;
+    if (totalItems > minItems) {
       // 重置位置
       currentIndex = 0;
       recentCarousel.style.transition = 'none';
@@ -298,12 +359,12 @@ if (recentCard && recentSpotlight) {
 async function loadTrending() {
   try {
     // 加载热门电影
-    const moviesResponse = await fetch('/api/trending/movies');
+    const moviesResponse = await fetchWithAuth('/api/trending/movies');
     const moviesData = await moviesResponse.json();
     displayMovies(moviesData.results, trendingMovies);
 
     // 加载热门电视剧
-    const tvResponse = await fetch('/api/trending/tv');
+    const tvResponse = await fetchWithAuth('/api/trending/tv');
     const tvData = await tvResponse.json();
     displayMovies(tvData.results, trendingTV);
   } catch (error) {
@@ -438,7 +499,7 @@ async function searchMovies(query) {
     suggestions.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
     suggestions.classList.add('show');
     
-    const response = await fetch(`/api/search?query=${encodeURIComponent(query)}`);
+    const response = await fetchWithAuth(`/api/search?query=${encodeURIComponent(query)}`);
     const data = await response.json();
     
     if (data.results && data.results.length > 0) {
@@ -511,7 +572,7 @@ async function selectMovie(id, title, mediaType, buttonElement) {
   buttonElement.innerHTML = '<div class="spinner-small"></div>';
 
   try {
-    const response = await fetch('/api/request', {
+    const response = await fetchWithAuth('/api/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, title, mediaType }),
@@ -595,7 +656,7 @@ async function initChart() {
   
   try {
     // 从 API 获取真实数据
-    const response = await fetch('/api/emby/trends');
+    const response = await fetchWithAuth('/api/emby/trends');
     const data = await response.json();
     
     // 生成日期标签
@@ -848,3 +909,29 @@ loadEmbyStats = async function() {
   await originalLoadEmbyStats();
   updateFooterStats();
 };
+
+// 登出功能
+const logoutBtn = document.getElementById('logoutBtn');
+const mobileLogoutBtn = document.getElementById('mobileLogoutBtn');
+
+async function handleLogout(e) {
+  e.preventDefault();
+  
+  try {
+    await fetchWithAuth('/api/logout', { method: 'POST' });
+  } catch (error) {
+    console.error('登出错误:', error);
+  } finally {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+  }
+}
+
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', handleLogout);
+}
+
+if (mobileLogoutBtn) {
+  mobileLogoutBtn.addEventListener('click', handleLogout);
+}

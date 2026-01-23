@@ -5,9 +5,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "concurrently \"nodemon server.js\" \"browser-sync start --proxy localhost:3000 --files 'public/**/*'\""
+    "dev": "concurrently \"nodemon server.js\" \"npm run browser-sync\"",
+    "browser-sync": "sleep 3 && browser-sync start --proxy localhost:3000 --files 'public/**/*'"
   },
   "dependencies": {
+    "cookie-parser": "^1.4.7",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "input": "^1.0.1",

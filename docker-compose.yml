@@ -14,6 +14,7 @@ services:
       - TG_API_HASH=你的API_HASH
       - TG_PHONE_NUMBER=你的手机号
       - TG_GROUP_ID=目标群组ID
+      - TG_BOT_USERNAME=@机器人用户名
       - TG_SESSION=你的session_string
       - EMBY_URL=你的Emby服务器地址
       - EMBY_API_KEY=你的Emby_API_KEY

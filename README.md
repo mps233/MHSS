@@ -42,7 +42,8 @@ TMDB_API_KEY=你的TMDB_API_KEY
 TG_API_ID=你的API_ID
 TG_API_HASH=你的API_HASH
 TG_PHONE_NUMBER=你的手机号（如+8613800138000）
-TG_GROUP_ID=目标群组ID或用户名（如@groupname）
+TG_GROUP_ID=目标群组ID（如@groupname或-123456789）
+# 或者使用 TG_BOT_USERNAME=@机器人用户名（二选一）
 TG_SESSION=你的session_string（首次启动后获取）
 
 # Emby 配置（可选）
@@ -116,7 +117,7 @@ npm start
      - TG_API_ID=你的API_ID
      - TG_API_HASH=你的API_HASH
      - TG_PHONE_NUMBER=你的手机号（如+8613800138000）
-     - TG_GROUP_ID=目标群组ID（如-123456789）
+     - TG_GROUP_ID=目标群组ID（如-123456789）或 TG_BOT_USERNAME=@机器人用户名（二选一）
      - TG_SESSION=你的session_string(第一步的时候获取到的Session String)
      - EMBY_URL=你的Emby服务器地址（可选）
      - EMBY_API_KEY=你的Emby_API_KEY（可选）
@@ -147,7 +148,7 @@ docker run -d \
   -e TG_API_ID=你的值 \
   -e TG_API_HASH=你的值 \
   -e TG_PHONE_NUMBER=你的值 \
-  -e TG_GROUP_ID=你的值 \
+  -e TG_GROUP_ID=你的值或TG_BOT_USERNAME=@机器人名 \
   -e TG_SESSION=你的值 \
   -v $(pwd)/requested-movies.json:/app/requested-movies.json \
   miaona/mhss:latest
@@ -172,9 +173,17 @@ docker run -d \
 3. 创建一个新应用
 4. 获取 `api_id` 和 `api_hash`
 
-### Telegram 群组 ID
-- 如果群组有公开用户名，直接使用 `@groupname`
-- 如果是私有群组，使用数字 ID（负数，如 `-1001234567890`）
+### Telegram 目标配置（二选一）
+
+**方式1：发送到群组（推荐）**
+- 如果群组有公开用户名，使用 `TG_GROUP_ID=@groupname`
+- 如果是私有群组，使用数字 ID `TG_GROUP_ID=-1001234567890`
+
+**方式2：直接发送给机器人**
+- 使用机器人用户名 `TG_BOT_USERNAME=@your_bot_username`
+- 不需要设置 `TG_GROUP_ID`
+
+注意：只需要配置其中一种方式即可。
 
 ### Emby 配置（可选）
 如果你有 Emby 服务器，可以配置以显示库统计信息：

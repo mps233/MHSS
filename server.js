@@ -3,6 +3,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
+const cookieParser = require('cookie-parser');
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const input = require('input');
@@ -11,7 +12,111 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+app.use(cookieParser());
+
+// Session管理
+const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
+
+// 从文件加载sessions
+function loadSessions() {
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const data = fs.readFileSync(SESSIONS_FILE, 'utf8');
+      const sessionsArray = JSON.parse(data);
+      return new Map(sessionsArray);
+    }
+  } catch (error) {
+    console.error('加载sessions失败:', error);
+  }
+  return new Map();
+}
+
+// 保存sessions到文件
+function saveSessions() {
+  try {
+    const sessionsArray = Array.from(sessions.entries());
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessionsArray, null, 2));
+  } catch (error) {
+    console.error('保存sessions失败:', error);
+  }
+}
+
+const sessions = loadSessions(); // 存储用户session
+
+// 定期清理过期session并保存
+setInterval(() => {
+  const now = Date.now();
+  let hasChanges = false;
+  for (const [token, session] of sessions.entries()) {
+    if (now > session.expiresAt) {
+      sessions.delete(token);
+      hasChanges = true;
+    }
+  }
+  if (hasChanges) {
+    saveSessions();
+  }
+}, 60 * 60 * 1000); // 每小时清理一次
+
+// 验证中间件
+function requireAuth(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  
+  if (!token || !sessions.has(token)) {
+    return res.status(401).json({ error: '未登录或登录已过期' });
+  }
+  
+  const session = sessions.get(token);
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(token);
+    return res.status(401).json({ error: '登录已过期' });
+  }
+  
+  req.user = session.user;
+  next();
+}
+
+// 页面访问控制中间件
+function requireAuthPage(req, res, next) {
+  // 允许访问登录页面和静态资源
+  if (req.path === '/login' ||
+      req.path === '/login.html' || 
+      req.path.startsWith('/style.css') ||
+      req.path.startsWith('/256.webp') ||
+      req.path === '/api/login') {
+    return next();
+  }
+  
+  // 检查cookie中的token
+  const token = req.cookies.token;
+  
+  if (!token || !sessions.has(token)) {
+    return res.redirect('/login');
+  }
+  
+  const session = sessions.get(token);
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(token);
+    return res.redirect('/login');
+  }
+  
+  next();
+}
+
+// 应用页面访问控制
+app.use(requireAuthPage);
+
 app.use(express.static('public'));
+
+// 路由：登录页面
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// 路由：首页
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // 已请求影片的存储文件
 const REQUESTED_FILE = path.join(__dirname, 'requested-movies.json');
@@ -28,6 +133,93 @@ function getRequestedMovies() {
   }
   return [];
 }
+
+// Emby登录API
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: '请输入用户名和密码' });
+  }
+
+  if (!process.env.EMBY_URL || !process.env.EMBY_API_KEY) {
+    return res.status(500).json({ error: 'Emby服务器未配置' });
+  }
+
+  try {
+    // 使用Emby API验证用户
+    const response = await fetch(
+      `${process.env.EMBY_URL}/Users/AuthenticateByName`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Emby-Authorization': `MediaBrowser Client="MHSS", Device="Web", DeviceId="mhss-web", Version="1.0.0"`
+        },
+        body: JSON.stringify({
+          Username: username,
+          Pw: password
+        })
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(401).json({ error: '用户名或密码错误' });
+    }
+
+    const data = await response.json();
+    
+    // 生成session token
+    const token = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24小时
+    
+    sessions.set(token, {
+      user: {
+        id: data.User.Id,
+        name: data.User.Name
+      },
+      expiresAt
+    });
+
+    // 保存session到文件
+    saveSessions();
+
+    // 设置cookie
+    res.cookie('token', token, {
+      httpOnly: false, // 允许JavaScript访问，因为前端需要用到
+      maxAge: 24 * 60 * 60 * 1000, // 24小时
+      sameSite: 'lax'
+    });
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: data.User.Id,
+        name: data.User.Name
+      }
+    });
+  } catch (error) {
+    console.error('登录错误:', error);
+    res.status(500).json({ error: '登录失败，请稍后重试' });
+  }
+});
+
+// 登出API
+app.post('/api/logout', (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (token) {
+    sessions.delete(token);
+    saveSessions(); // 保存到文件
+  }
+  res.clearCookie('token');
+  res.json({ success: true });
+});
+
+// 验证token
+app.get('/api/verify', requireAuth, (req, res) => {
+  res.json({ success: true, user: req.user });
+});
 
 // 获取今日请求数量
 function getTodayRequestCount() {
@@ -124,7 +316,7 @@ async function initTelegramClient() {
 }
 
 // 搜索 TMDB
-app.get('/api/search', async (req, res) => {
+app.get('/api/search', requireAuth, async (req, res) => {
   const { query } = req.query;
   
   if (!query) {
@@ -176,7 +368,7 @@ app.get('/api/search', async (req, res) => {
 });
 
 // 获取热门电影
-app.get('/api/trending/movies', async (req, res) => {
+app.get('/api/trending/movies', requireAuth, async (req, res) => {
   try {
     const response = await fetch(
       `https://api.themoviedb.org/3/trending/movie/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
@@ -215,7 +407,7 @@ app.get('/api/trending/movies', async (req, res) => {
 });
 
 // 获取热门电视剧
-app.get('/api/trending/tv', async (req, res) => {
+app.get('/api/trending/tv', requireAuth, async (req, res) => {
   try {
     const response = await fetch(
       `https://api.themoviedb.org/3/trending/tv/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
@@ -378,8 +570,8 @@ app.get('/api/recent-requests', async (req, res) => {
   }
 });
 
-// 发送请求到 Telegram 群组（使用用户账号）
-app.post('/api/request', async (req, res) => {
+// 发送请求到 Telegram 群组或机器人（使用用户账号）
+app.post('/api/request', requireAuth, async (req, res) => {
   const { id, title, mediaType } = req.body;
   
   if (!title || !id || !mediaType) {
@@ -390,18 +582,25 @@ app.post('/api/request', async (req, res) => {
     return res.status(500).json({ error: 'Telegram 客户端未连接，请重启服务器' });
   }
 
+  // 获取目标：优先使用群组，如果没有则使用机器人
+  const target = process.env.TG_GROUP_ID || process.env.TG_BOT_USERNAME;
+  
+  if (!target) {
+    return res.status(500).json({ error: '未配置 Telegram 群组或机器人' });
+  }
+
   try {
     const message = `/s ${title}`;
     
     // 发送消息
-    await client.sendMessage(process.env.TG_GROUP_ID, { message });
-    console.log(`已发送消息: ${message}`);
+    await client.sendMessage(target, { message });
+    console.log(`已发送消息到 ${target}: ${message}`);
     
     // 等待机器人回复（带按钮的消息）
     await new Promise(resolve => setTimeout(resolve, 5000)); // 等待5秒
     
     // 获取最近的消息
-    const messages = await client.getMessages(process.env.TG_GROUP_ID, { limit: 5 });
+    const messages = await client.getMessages(target, { limit: 5 });
     
     // 查找带按钮的消息
     for (const msg of messages) {
@@ -474,3 +673,5 @@ async function startServer() {
 
 console.log('=== 脚本开始执行 ===');
 startServer();
+ 
+ 
