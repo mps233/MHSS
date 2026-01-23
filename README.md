@@ -77,6 +77,44 @@ npm start
 
 ## Docker 部署
 
+### 重要：首次部署需要先获取 TG_SESSION
+
+由于Telegram需要验证码登录，首次部署前需要先获取SESSION：
+
+**方法1：本地获取（第一次运行获取session）**
+```bash
+# 克隆仓库
+git clone https://github.com/mps233/MHSS.git
+cd MHSS
+
+# 安装依赖
+npm install
+
+# 配置.env文件（不需要填TG_SESSION）
+cp .env.example .env
+# 编辑.env，填写TMDB_API_KEY、TG_API_ID等
+
+# 启动获取SESSION
+npm start
+# 按提示输入验证码，成功后会显示SESSION字符串
+# 复制这个SESSION字符串
+```
+
+**方法2：使用临时容器获取**
+```bash
+# 下载docker-compose.yml
+wget https://raw.githubusercontent.com/mps233/MHSS/main/docker-compose.yml
+
+# 编辑docker-compose.yml，TG_SESSION留空
+# 启动容器
+docker-compose up
+
+# 查看日志，会提示输入验证码
+# 但Docker无法交互输入，所以建议用方法1
+```
+
+获取到SESSION后，填入docker-compose.yml的TG_SESSION字段，然后正式部署。
+
 ### 使用 Docker Compose（推荐）
 
 1. **下载 docker-compose.yml**
