@@ -42,8 +42,10 @@ TMDB_API_KEY=你的TMDB_API_KEY
 TG_API_ID=你的API_ID
 TG_API_HASH=你的API_HASH
 TG_PHONE_NUMBER=你的手机号（如+8613800138000）
-TG_GROUP_ID=目标群组ID（如@groupname或-123456789）
-# 或者使用 TG_BOT_USERNAME=@机器人用户名（二选一）
+
+TG_GROUP_ID=你的mh机器人所在的目标群组ID（如@groupname或-123456789）
+# 或者使用 TG_BOT_USERNAME=@你的mh机器人用户名（二选一）
+
 TG_SESSION=你的session_string（首次启动后获取）
 
 # Emby 配置（可选）
@@ -117,7 +119,7 @@ npm start
      - TG_API_ID=你的API_ID
      - TG_API_HASH=你的API_HASH
      - TG_PHONE_NUMBER=你的手机号（如+8613800138000）
-     - TG_GROUP_ID=目标群组ID（如-123456789）或 TG_BOT_USERNAME=@机器人用户名（二选一）
+     - TG_GROUP_ID=目标群组ID（如-123456789）或 TG_BOT_USERNAME=@你的mh机器人用户名（二选一）
      - TG_SESSION=你的session_string(第一步的时候获取到的Session String)
      - EMBY_URL=你的Emby服务器地址（可选）
      - EMBY_API_KEY=你的Emby_API_KEY（可选）
