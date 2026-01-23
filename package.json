@@ -5,9 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "concurrently \"nodemon server.js\" \"browser-sync start --proxy localhost:3000 --files 'public/**/*'\"",
-    "build": "cd client && npm run build",
-    "install-client": "cd client && npm install"
+    "dev": "concurrently \"nodemon server.js\" \"browser-sync start --proxy localhost:3000 --files 'public/**/*'\""
   },
   "dependencies": {
     "dotenv": "^16.3.1",
