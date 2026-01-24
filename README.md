@@ -49,6 +49,11 @@ MEDIAHELPER_PASSWORD=你的MediaHelper密码
 
 # 服务器端口（可选）
 PORT=3000
+
+# HTTP 代理配置（可选）- 用于访问 TMDB API
+# 如果在中国大陆访问 TMDB 较慢，可以配置代理
+# HTTP_PROXY=http://127.0.0.1:7890
+# HTTPS_PROXY=http://127.0.0.1:7890
 ```
 
 ### 3. 启动服务
