@@ -8,7 +8,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
       - TMDB_API_KEY=你的TMDB_API_KEY
       - EMBY_URL=你的Emby服务器地址
       - EMBY_API_KEY=你的Emby_API_KEY
