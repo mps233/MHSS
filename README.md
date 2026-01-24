@@ -71,15 +71,31 @@ npm run dev
 
 ## Docker 部署
 
-### 使用 Docker Compose（推荐）
 
-1. 克隆仓库：
-```bash
-git clone https://github.com/mps233/MHSS.git
-cd MHSS
+1. 创建 `docker-compose.yml` 文件，内容如下：
+
+```yaml
+services:
+  mhss:
+    image: miaona/mhss:latest
+    container_name: mhss-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - TMDB_API_KEY=你的TMDB_API_KEY
+      - EMBY_URL=你的Emby服务器地址
+      - EMBY_API_KEY=你的Emby_API_KEY
+      - MEDIAHELPER_URL=你的MediaHelper服务器地址
+      - MEDIAHELPER_USERNAME=你的MediaHelper用户名
+      - MEDIAHELPER_PASSWORD=你的MediaHelper密码
+      - PORT=3000
 ```
 
-2. 编辑 `docker-compose.yml`，填写环境变量：
+2. 修改环境变量为你的实际配置
+
+3. 启动容器:
 ```yaml
 environment:
   - TMDB_API_KEY=你的TMDB_API_KEY
