@@ -74,7 +74,8 @@ async function getMediaHelperDefaults() {
   const token = await getMediaHelperToken();
   
   try {
-    const response = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/subscription/config/cloud-defaults`, {
+    // 获取订阅默认配置（包含默认账号 ID）
+    const configResponse = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/subscription/config/cloud-defaults`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -82,15 +83,38 @@ async function getMediaHelperDefaults() {
       }
     });
 
-    if (!response.ok) {
+    if (!configResponse.ok) {
       throw new Error('获取默认配置失败');
     }
 
-    const data = await response.json();
-    // console.log('MediaHelper 默认配置:', JSON.stringify(data, null, 2));
+    const configData = await configResponse.json();
+    const config = configData.data || configData;
+    
+    // 如果有默认账号 ID，获取该账号的云盘类型
+    if (config.default_account_id) {
+      const accountsResponse = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/cloud-accounts`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (accountsResponse.ok) {
+        const accountsData = await accountsResponse.json();
+        const accounts = accountsData.data?.accounts || [];
+        
+        // 查找默认账号
+        const defaultAccount = accounts.find(acc => acc.external_id === config.default_account_id);
+        
+        if (defaultAccount) {
+          config.default_cloud_type = defaultAccount.cloud_type;
+        }
+      }
+    }
     
     // 缓存默认配置
-    mediaHelperDefaults = data.data || data;
+    mediaHelperDefaults = config;
     return mediaHelperDefaults;
   } catch (error) {
     console.error('获取 MediaHelper 默认配置失败:', error);
@@ -169,26 +193,45 @@ async function getMediaHelperSubscriptions() {
   try {
     const token = await getMediaHelperToken();
     
-    const response = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/subscription/list`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error('获取订阅列表失败');
-    }
-
-    const data = await response.json();
-    // console.log('MediaHelper 订阅列表:', JSON.stringify(data, null, 2));
+    // 获取所有订阅（分页获取）
+    let allSubscriptions = [];
+    let page = 1;
+    const pageSize = 100;
     
-    // 返回订阅列表
-    return data.data || data;
+    while (true) {
+      const response = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/subscription/list?page=${page}&page_size=${pageSize}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('获取订阅列表失败');
+      }
+
+      const data = await response.json();
+      const subscriptions = data.data?.subscriptions || [];
+      
+      if (subscriptions.length === 0) {
+        break;
+      }
+      
+      allSubscriptions = allSubscriptions.concat(subscriptions);
+      
+      // 如果返回的数量少于 pageSize，说明已经是最后一页
+      if (subscriptions.length < pageSize) {
+        break;
+      }
+      
+      page++;
+    }
+    
+    return { subscriptions: allSubscriptions };
   } catch (error) {
     console.error('获取 MediaHelper 订阅列表失败:', error);
-    return [];
+    return { subscriptions: [] };
   }
 }
 async function createMediaHelperSubscription(movieData) {
@@ -219,9 +262,14 @@ async function createMediaHelperSubscription(movieData) {
   };
 
   // 使用 MediaHelper 的默认配置
-  // 云盘类型：必须明确指定，MediaHelper 的自动识别不准确
-  // 优先使用环境变量，如果没有配置则默认使用 drive115
-  subscriptionData.cloud_type = process.env.MEDIAHELPER_CLOUD_TYPE || 'drive115';
+  // 云盘类型：优先使用 MediaHelper 默认账号的类型，其次使用环境变量，最后默认 drive115
+  if (defaults.default_cloud_type) {
+    subscriptionData.cloud_type = defaults.default_cloud_type;
+  } else if (process.env.MEDIAHELPER_CLOUD_TYPE) {
+    subscriptionData.cloud_type = process.env.MEDIAHELPER_CLOUD_TYPE;
+  } else {
+    subscriptionData.cloud_type = 'drive115';
+  }
 
   if (defaults.default_account_id) {
     subscriptionData.account_identifier = defaults.default_account_id;
@@ -457,7 +505,8 @@ app.get('/api/search', requireAuth, async (req, res) => {
         type: item.media_type === 'movie' ? '电影' : '剧集',
         poster: item.poster_path ? `https://image.tmdb.org/t/p/w200${item.poster_path}` : null,
         mediaType: item.media_type,
-        requested: false, // 不再检查本地请求状态
+        requested: false,
+        inLibrary: false,
         // 添加完整的 TMDB 数据供 MediaHelper 使用
         tmdbData: {
           id: item.id,
@@ -475,6 +524,28 @@ app.get('/api/search', requireAuth, async (req, res) => {
           popularity: item.popularity
         }
       }));
+
+    // 检查 MediaHelper 订阅状态
+    if (process.env.MEDIAHELPER_URL && process.env.MEDIAHELPER_USERNAME) {
+      try {
+        const subscriptions = await getMediaHelperSubscriptions();
+        const subscriptionMap = new Map();
+        
+        if (subscriptions && subscriptions.subscriptions) {
+          subscriptions.subscriptions.forEach(sub => {
+            if (sub.params && sub.params.tmdb_id) {
+              subscriptionMap.set(sub.params.tmdb_id, true);
+            }
+          });
+        }
+        
+        results.forEach(item => {
+          item.requested = subscriptionMap.has(item.id);
+        });
+      } catch (error) {
+        console.error('检查 MediaHelper 订阅状态错误:', error);
+      }
+    }
 
     // 检查 Emby 库中是否已有这些影片
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
@@ -513,8 +584,31 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
       year: (item.release_date || '').split('-')[0],
       rating: item.vote_average ? item.vote_average.toFixed(1) : 'N/A',
       poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
-      requested: false // 不再检查本地请求状态
+      requested: false,
+      inLibrary: false
     }));
+
+    // 检查 MediaHelper 订阅状态
+    if (process.env.MEDIAHELPER_URL && process.env.MEDIAHELPER_USERNAME) {
+      try {
+        const subscriptions = await getMediaHelperSubscriptions();
+        const subscriptionMap = new Map();
+        
+        if (subscriptions && subscriptions.subscriptions) {
+          subscriptions.subscriptions.forEach(sub => {
+            if (sub.params && sub.params.tmdb_id) {
+              subscriptionMap.set(sub.params.tmdb_id, true);
+            }
+          });
+        }
+        
+        results.forEach(movie => {
+          movie.requested = subscriptionMap.has(movie.id);
+        });
+      } catch (error) {
+        console.error('检查 MediaHelper 订阅状态错误:', error);
+      }
+    }
 
     // 检查 Emby 库中是否已有这些电影
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
@@ -552,8 +646,31 @@ app.get('/api/trending/tv', requireAuth, async (req, res) => {
       year: (item.first_air_date || '').split('-')[0],
       rating: item.vote_average ? item.vote_average.toFixed(1) : 'N/A',
       poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
-      requested: false // 不再检查本地请求状态
+      requested: false,
+      inLibrary: false
     }));
+
+    // 检查 MediaHelper 订阅状态
+    if (process.env.MEDIAHELPER_URL && process.env.MEDIAHELPER_USERNAME) {
+      try {
+        const subscriptions = await getMediaHelperSubscriptions();
+        const subscriptionMap = new Map();
+        
+        if (subscriptions && subscriptions.subscriptions) {
+          subscriptions.subscriptions.forEach(sub => {
+            if (sub.params && sub.params.tmdb_id) {
+              subscriptionMap.set(sub.params.tmdb_id, true);
+            }
+          });
+        }
+        
+        results.forEach(show => {
+          show.requested = subscriptionMap.has(show.id);
+        });
+      } catch (error) {
+        console.error('检查 MediaHelper 订阅状态错误:', error);
+      }
+    }
 
     // 检查 Emby 库中是否已有这些电视剧
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {

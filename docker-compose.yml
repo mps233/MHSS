@@ -14,7 +14,7 @@ services:
       - MEDIAHELPER_URL=你的MediaHelper服务器地址
       - MEDIAHELPER_USERNAME=你的MediaHelper用户名
       - MEDIAHELPER_PASSWORD=你的MediaHelper密码
-      - MEDIAHELPER_CLOUD_TYPE=drive115  # 云盘类型：drive115/tianyiyun/quark/aliyundrive
+      # - MEDIAHELPER_CLOUD_TYPE=drive115  # 可选，系统会自动获取
       - PORT=3000
       # 可选：如果访问 TMDB 较慢，可以配置代理
       # - HTTP_PROXY=http://127.0.0.1:7890

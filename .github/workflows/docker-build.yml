@@ -4,7 +4,10 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+      - 'image/**'
 
 jobs:
   build:
@@ -29,7 +32,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/mhss:latest
-            ${{ secrets.DOCKER_USERNAME }}/mhss:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/mhss:latest
+            miaona/mhss:latest
+            miaona/mhss:${{ github.sha }}
+          cache-from: type=registry,ref=miaona/mhss:latest
           cache-to: type=inline
