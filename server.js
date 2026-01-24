@@ -87,7 +87,7 @@ async function getMediaHelperDefaults() {
     }
 
     const data = await response.json();
-    console.log('MediaHelper 默认配置:', JSON.stringify(data, null, 2));
+    // console.log('MediaHelper 默认配置:', JSON.stringify(data, null, 2));
     
     // 缓存默认配置
     mediaHelperDefaults = data.data || data;
@@ -144,7 +144,7 @@ async function getMediaHelperToken() {
     }
 
     const data = await response.json();
-    console.log('MediaHelper 登录响应:', JSON.stringify(data, null, 2));
+    // console.log('MediaHelper 登录响应:', JSON.stringify(data, null, 2));
     
     // 尝试不同的 token 字段名
     mediaHelperToken = data.data?.token || data.token || data.access_token || data.data?.access_token;
@@ -182,7 +182,7 @@ async function getMediaHelperSubscriptions() {
     }
 
     const data = await response.json();
-    console.log('MediaHelper 订阅列表:', JSON.stringify(data, null, 2));
+    // console.log('MediaHelper 订阅列表:', JSON.stringify(data, null, 2));
     
     // 返回订阅列表
     return data.data || data;
@@ -213,6 +213,8 @@ async function createMediaHelperSubscription(movieData) {
     popularity: movieData.popularity || 0,
     search_keywords: title,
     quality_preference: 'auto',
+    cron: process.env.MEDIAHELPER_CRON || defaults.cron || '0 19,21,23 * * *',
+    cloud_type: process.env.MEDIAHELPER_CLOUD_TYPE || defaults.cloud_type || 'drive115',
     custom_name: title,
     selected_seasons: [],
     user_custom_links: []
@@ -718,7 +720,7 @@ app.get('/api/recent-requests', async (req, res) => {
     }
 
     const data = await getMediaHelperSubscriptions();
-    console.log('MediaHelper 订阅数据:', JSON.stringify(data, null, 2));
+    // console.log('MediaHelper 订阅数据:', JSON.stringify(data, null, 2));
     
     if (data && data.subscriptions && data.subscriptions.length > 0) {
       // 转换 MediaHelper 订阅数据为前端需要的格式
@@ -750,7 +752,7 @@ app.get('/api/recent-requests', async (req, res) => {
         };
       });
       
-      console.log('转换后的订阅数据:', JSON.stringify(requestsWithPosters.slice(0, 3), null, 2));
+      // console.log('转换后的订阅数据:', JSON.stringify(requestsWithPosters.slice(0, 3), null, 2));
       return res.json({ requests: requestsWithPosters });
     }
     
