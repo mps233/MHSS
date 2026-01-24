@@ -775,6 +775,8 @@ app.post('/api/request', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('MediaHelper 订阅失败:', error);
+    console.error('错误详情:', error.message);
+    console.error('错误堆栈:', error.stack);
     
     // 如果是"已存在订阅"的错误，直接返回成功
     if (error.message && error.message.includes('已存在')) {
@@ -785,7 +787,10 @@ app.post('/api/request', requireAuth, async (req, res) => {
       });
     }
     
-    return res.status(500).json({ error: '订阅失败: ' + error.message });
+    return res.status(500).json({ 
+      error: '订阅失败: ' + (error.message || '未知错误'),
+      details: error.stack
+    });
   }
 });
 

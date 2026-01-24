@@ -763,6 +763,9 @@ async function selectMovie(id, title, mediaType, buttonElement, movieData = null
     }
   } catch (error) {
     // 显示错误状态
+    console.error('订阅失败:', error);
+    console.error('错误详情:', error.message);
+    
     buttonElement.classList.remove('loading');
     buttonElement.classList.add('error');
     buttonElement.innerHTML = `
@@ -772,7 +775,12 @@ async function selectMovie(id, title, mediaType, buttonElement, movieData = null
         <line x1="9" y1="9" x2="15" y2="15"></line>
       </svg>
     `;
-    buttonElement.title = '订阅失败: ' + error.message;
+    
+    const errorMsg = error.message || '未知错误';
+    buttonElement.title = '订阅失败: ' + errorMsg;
+    
+    // 显示错误提示
+    console.error(`订阅《${title}》失败:`, errorMsg);
     
     // 3秒后恢复原状
     setTimeout(() => {
