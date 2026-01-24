@@ -64,6 +64,21 @@ let mediaHelperToken = null;
 let mediaHelperTokenExpiry = 0;
 let mediaHelperDefaults = null; // 缓存默认配置
 
+// 订阅列表缓存
+let subscriptionsCache = null;
+let subscriptionsCacheExpiry = 0;
+const SUBSCRIPTIONS_CACHE_TTL = 2 * 60 * 1000; // 2分钟缓存
+
+// Emby 库缓存
+let embyLibraryCache = new Map(); // tmdbId -> boolean
+let embyLibraryCacheExpiry = 0;
+const EMBY_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+
+// 入库趋势缓存
+let trendsCacheData = null;
+let trendsCacheExpiry = 0;
+const TRENDS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+
 // 获取 MediaHelper 默认配置
 async function getMediaHelperDefaults() {
   // 如果已经缓存了，直接返回
@@ -188,8 +203,13 @@ async function getMediaHelperToken() {
   }
 }
 
-// 获取 MediaHelper 订阅列表
-async function getMediaHelperSubscriptions() {
+// 获取 MediaHelper 订阅列表（带缓存）
+async function getMediaHelperSubscriptions(forceRefresh = false) {
+  // 如果有缓存且未过期，直接返回
+  if (!forceRefresh && subscriptionsCache && Date.now() < subscriptionsCacheExpiry) {
+    return subscriptionsCache;
+  }
+
   try {
     const token = await getMediaHelperToken();
     
@@ -228,11 +248,97 @@ async function getMediaHelperSubscriptions() {
       page++;
     }
     
-    return { subscriptions: allSubscriptions };
+    const result = { subscriptions: allSubscriptions };
+    
+    // 更新缓存
+    subscriptionsCache = result;
+    subscriptionsCacheExpiry = Date.now() + SUBSCRIPTIONS_CACHE_TTL;
+    
+    return result;
   } catch (error) {
     console.error('获取 MediaHelper 订阅列表失败:', error);
+    // 如果有旧缓存，返回旧缓存
+    if (subscriptionsCache) {
+      return subscriptionsCache;
+    }
     return { subscriptions: [] };
   }
+}
+
+// 批量检查 Emby 库中的影片（带缓存）
+async function checkEmbyLibraryBatch(tmdbIds, mediaType) {
+  if (!process.env.EMBY_URL || !process.env.EMBY_API_KEY || !tmdbIds || tmdbIds.length === 0) {
+    return new Map();
+  }
+
+  const results = new Map();
+  const uncachedIds = [];
+  
+  // 检查缓存
+  const now = Date.now();
+  if (now < embyLibraryCacheExpiry) {
+    tmdbIds.forEach(id => {
+      const cacheKey = `${mediaType}_${id}`;
+      if (embyLibraryCache.has(cacheKey)) {
+        results.set(id, embyLibraryCache.get(cacheKey));
+      } else {
+        uncachedIds.push(id);
+      }
+    });
+  } else {
+    // 缓存过期，清空
+    embyLibraryCache.clear();
+    uncachedIds.push(...tmdbIds);
+    embyLibraryCacheExpiry = now + EMBY_CACHE_TTL;
+  }
+
+  // 如果所有 ID 都有缓存，直接返回
+  if (uncachedIds.length === 0) {
+    return results;
+  }
+
+  try {
+    const itemType = mediaType === 'movie' ? 'Movie' : 'Series';
+    
+    // 一次性获取所有该类型的影片
+    const response = await fetch(
+      `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=${itemType}&Recursive=true&Fields=ProviderIds&Limit=10000`
+    );
+    
+    if (!response.ok) {
+      throw new Error('Emby API 请求失败');
+    }
+    
+    const data = await response.json();
+    const items = data.Items || [];
+    
+    // 构建 TMDB ID 映射
+    const embyTmdbIds = new Set();
+    items.forEach(item => {
+      if (item.ProviderIds && item.ProviderIds.Tmdb) {
+        embyTmdbIds.add(parseInt(item.ProviderIds.Tmdb));
+      }
+    });
+    
+    // 检查每个 ID 是否在库中
+    uncachedIds.forEach(id => {
+      const inLibrary = embyTmdbIds.has(id);
+      results.set(id, inLibrary);
+      
+      // 更新缓存
+      const cacheKey = `${mediaType}_${id}`;
+      embyLibraryCache.set(cacheKey, inLibrary);
+    });
+    
+  } catch (error) {
+    console.error('批量检查 Emby 库失败:', error);
+    // 失败时，未缓存的 ID 都标记为 false
+    uncachedIds.forEach(id => {
+      results.set(id, false);
+    });
+  }
+
+  return results;
 }
 async function createMediaHelperSubscription(movieData) {
   const token = await getMediaHelperToken();
@@ -309,6 +415,18 @@ async function createMediaHelperSubscription(movieData) {
   return result;
 }
 
+// Session 保存防抖
+let saveSessionsTimeout = null;
+function saveSessionsDebounced() {
+  if (saveSessionsTimeout) {
+    clearTimeout(saveSessionsTimeout);
+  }
+  saveSessionsTimeout = setTimeout(() => {
+    saveSessions();
+    saveSessionsTimeout = null;
+  }, 5000); // 5秒内只保存一次
+}
+
 // 定期清理过期session并保存
 setInterval(() => {
   const now = Date.now();
@@ -320,7 +438,7 @@ setInterval(() => {
     }
   }
   if (hasChanges) {
-    saveSessions();
+    saveSessionsDebounced();
   }
 }, 60 * 60 * 1000); // 每小时清理一次
 
@@ -380,7 +498,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 静态文件服务 - 禁用缓存
+// 静态文件服务 - 优化缓存策略
 app.use(express.static('public', {
   setHeaders: (res, path) => {
     // 对 HTML、JS、CSS 文件禁用缓存
@@ -388,6 +506,12 @@ app.use(express.static('public', {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
+    } else if (path.endsWith('.webp') || path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.jpeg')) {
+      // 图片资源缓存 1 天
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    } else if (path.endsWith('.json')) {
+      // manifest.json 等缓存 1 小时
+      res.setHeader('Cache-Control', 'public, max-age=3600');
     }
   }
 }));
@@ -449,8 +573,8 @@ app.post('/api/login', async (req, res) => {
       expiresAt
     });
 
-    // 保存session到文件
-    saveSessions();
+    // 保存session到文件（防抖）
+    saveSessionsDebounced();
 
     // 设置cookie
     res.cookie('token', token, {
@@ -478,7 +602,7 @@ app.post('/api/logout', (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (token) {
     sessions.delete(token);
-    saveSessions(); // 保存到文件
+    saveSessionsDebounced(); // 保存到文件（防抖）
   }
   res.clearCookie('token');
   res.json({ success: true });
@@ -504,7 +628,7 @@ app.get('/api/verify', requireAuth, async (req, res) => {
         const token = req.headers.authorization?.replace('Bearer ', '');
         if (token && sessions.has(token)) {
           sessions.delete(token);
-          saveSessions();
+          saveSessionsDebounced();
           console.log(`   已清除失效的 session`);
         }
         
@@ -525,7 +649,7 @@ app.get('/api/verify', requireAuth, async (req, res) => {
         const token = req.headers.authorization?.replace('Bearer ', '');
         if (token && sessions.has(token)) {
           sessions.delete(token);
-          saveSessions();
+          saveSessionsDebounced();
           console.log(`   已清除被禁用账号的 session`);
         }
         
@@ -612,17 +736,24 @@ app.get('/api/search', requireAuth, async (req, res) => {
       }
     }
 
-    // 检查 Emby 库中是否已有这些影片（并行检查）
+    // 批量检查 Emby 库中是否已有这些影片
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
       try {
-        await Promise.all(results.map(async (item) => {
-          const itemType = item.mediaType === 'movie' ? 'Movie' : 'Series';
-          const searchResponse = await fetch(
-            `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&searchTerm=${encodeURIComponent(item.title)}&IncludeItemTypes=${itemType}&Recursive=true`
-          );
-          const searchData = await searchResponse.json();
-          item.inLibrary = searchData.Items && searchData.Items.length > 0;
-        }));
+        const movieIds = results.filter(item => item.mediaType === 'movie').map(item => item.id);
+        const tvIds = results.filter(item => item.mediaType === 'tv').map(item => item.id);
+        
+        const [movieLibrary, tvLibrary] = await Promise.all([
+          movieIds.length > 0 ? checkEmbyLibraryBatch(movieIds, 'movie') : Promise.resolve(new Map()),
+          tvIds.length > 0 ? checkEmbyLibraryBatch(tvIds, 'tv') : Promise.resolve(new Map())
+        ]);
+        
+        results.forEach(item => {
+          if (item.mediaType === 'movie') {
+            item.inLibrary = movieLibrary.get(item.id) || false;
+          } else {
+            item.inLibrary = tvLibrary.get(item.id) || false;
+          }
+        });
       } catch (error) {
         console.error('检查 Emby 库错误:', error);
       }
@@ -677,16 +808,15 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
       }
     }
 
-    // 检查 Emby 库中是否已有这些电影（并行检查）
+    // 批量检查 Emby 库中是否已有这些电影
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
       try {
-        await Promise.all(results.map(async (movie) => {
-          const searchResponse = await fetch(
-            `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&searchTerm=${encodeURIComponent(movie.title)}&IncludeItemTypes=Movie&Recursive=true`
-          );
-          const searchData = await searchResponse.json();
-          movie.inLibrary = searchData.Items && searchData.Items.length > 0;
-        }));
+        const movieIds = results.map(movie => movie.id);
+        const libraryStatus = await checkEmbyLibraryBatch(movieIds, 'movie');
+        
+        results.forEach(movie => {
+          movie.inLibrary = libraryStatus.get(movie.id) || false;
+        });
       } catch (error) {
         console.error('检查 Emby 库错误:', error);
       }
@@ -745,16 +875,15 @@ app.get('/api/trending/tv', requireAuth, async (req, res) => {
       }
     }
 
-    // 检查 Emby 库中是否已有这些电视剧（并行检查）
+    // 批量检查 Emby 库中是否已有这些电视剧
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
       try {
-        await Promise.all(results.map(async (show) => {
-          const searchResponse = await fetch(
-            `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&searchTerm=${encodeURIComponent(show.title)}&IncludeItemTypes=Series&Recursive=true`
-          );
-          const searchData = await searchResponse.json();
-          show.inLibrary = searchData.Items && searchData.Items.length > 0;
-        }));
+        const tvIds = results.map(show => show.id);
+        const libraryStatus = await checkEmbyLibraryBatch(tvIds, 'tv');
+        
+        results.forEach(show => {
+          show.inLibrary = libraryStatus.get(show.id) || false;
+        });
       } catch (error) {
         console.error('检查 Emby 库错误:', error);
       }
@@ -879,7 +1008,7 @@ app.get('/api/tmdb/status', requireAuth, async (req, res) => {
   }
 });
 
-// 获取 Emby 入库趋势（最近7天）
+// 获取 Emby 入库趋势（最近7天）- 优化版
 app.get('/api/emby/trends', async (req, res) => {
   if (!process.env.EMBY_URL || !process.env.EMBY_API_KEY) {
     return res.json({ 
@@ -888,48 +1017,105 @@ app.get('/api/emby/trends', async (req, res) => {
     });
   }
 
+  // 检查缓存
+  const now = Date.now();
+  if (trendsCacheData && now < trendsCacheExpiry) {
+    return res.json(trendsCacheData);
+  }
+
   try {
-    const movieData = [];
-    const tvData = [];
+    // 获取北京时间（UTC+8）的今天 0 点
+    const utcNow = new Date();
+    const beijingNow = new Date(utcNow.getTime() + 8 * 60 * 60 * 1000);
+    const beijingToday = new Date(Date.UTC(
+      beijingNow.getUTCFullYear(),
+      beijingNow.getUTCMonth(),
+      beijingNow.getUTCDate(),
+      0, 0, 0, 0
+    ));
     
-    // 获取最近7天的数据（按北京时间 UTC+8）
-    for (let i = 6; i >= 0; i--) {
-      // 获取北京时间的日期
-      const now = new Date();
-      const beijingOffset = 8 * 60; // 北京时间 UTC+8
-      const localOffset = now.getTimezoneOffset(); // 本地时区偏移（分钟）
-      const offsetDiff = beijingOffset + localOffset; // 与北京时间的差异
-      
-      // 计算北京时间的今天 0 点
-      const beijingDate = new Date(now.getTime() + offsetDiff * 60 * 1000);
-      beijingDate.setHours(0, 0, 0, 0);
-      beijingDate.setDate(beijingDate.getDate() - i);
-      
-      // 转换回 UTC 时间用于 API 查询
-      const date = new Date(beijingDate.getTime() - offsetDiff * 60 * 1000);
-      
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-      
-      // 获取该天添加的电影
-      const movieResponse = await fetch(
-        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Movie&Recursive=true&MinDateCreated=${date.toISOString()}&MaxDateCreated=${nextDate.toISOString()}`
-      );
-      const movieResult = await movieResponse.json();
-      movieData.push(movieResult.TotalRecordCount || 0);
-      
-      // 获取该天添加的剧集
-      const tvResponse = await fetch(
-        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Episode&Recursive=true&MinDateCreated=${date.toISOString()}&MaxDateCreated=${nextDate.toISOString()}`
-      );
-      const tvResult = await tvResponse.json();
-      tvData.push(tvResult.TotalRecordCount || 0);
-    }
+    // 计算7天前（包含今天，所以是 -6）
+    const sevenDaysAgo = new Date(beijingToday);
+    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
     
-    res.json({ 
+    // 转换回 UTC 时间用于 API 查询（减去8小时）
+    const minDate = new Date(sevenDaysAgo.getTime() - 8 * 60 * 60 * 1000);
+    
+    // 并行获取电影和剧集数据
+    const [movieResponse, tvResponse] = await Promise.all([
+      fetch(
+        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Movie&Recursive=true&MinDateCreated=${minDate.toISOString()}&Fields=DateCreated&Limit=50000`
+      ),
+      fetch(
+        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Episode&Recursive=true&MinDateCreated=${minDate.toISOString()}&Fields=DateCreated&Limit=50000`
+      )
+    ]);
+    
+    const movieResult = await movieResponse.json();
+    const tvResult = await tvResponse.json();
+    
+    const movies = movieResult.Items || [];
+    const episodes = tvResult.Items || [];
+    
+    // 按天统计
+    const movieData = new Array(7).fill(0);
+    const tvData = new Array(7).fill(0);
+    
+    // 统计电影
+    movies.forEach(item => {
+      if (item.DateCreated) {
+        // Emby 返回的是 UTC 时间，转换为北京时间
+        const utcCreated = new Date(item.DateCreated);
+        const beijingCreated = new Date(utcCreated.getTime() + 8 * 60 * 60 * 1000);
+        const beijingCreatedDay = new Date(Date.UTC(
+          beijingCreated.getUTCFullYear(),
+          beijingCreated.getUTCMonth(),
+          beijingCreated.getUTCDate(),
+          0, 0, 0, 0
+        ));
+        
+        // 计算距离今天的天数（0 = 今天, 1 = 昨天, ...）
+        const daysDiff = Math.floor((beijingToday.getTime() - beijingCreatedDay.getTime()) / (24 * 60 * 60 * 1000));
+        
+        // 数组索引：[6天前, 5天前, ..., 昨天, 今天]
+        if (daysDiff >= 0 && daysDiff <= 6) {
+          movieData[6 - daysDiff]++;
+        }
+      }
+    });
+    
+    // 统计剧集
+    episodes.forEach(item => {
+      if (item.DateCreated) {
+        // Emby 返回的是 UTC 时间，转换为北京时间
+        const utcCreated = new Date(item.DateCreated);
+        const beijingCreated = new Date(utcCreated.getTime() + 8 * 60 * 60 * 1000);
+        const beijingCreatedDay = new Date(Date.UTC(
+          beijingCreated.getUTCFullYear(),
+          beijingCreated.getUTCMonth(),
+          beijingCreated.getUTCDate(),
+          0, 0, 0, 0
+        ));
+        
+        // 计算距离今天的天数
+        const daysDiff = Math.floor((beijingToday.getTime() - beijingCreatedDay.getTime()) / (24 * 60 * 60 * 1000));
+        
+        if (daysDiff >= 0 && daysDiff <= 6) {
+          tvData[6 - daysDiff]++;
+        }
+      }
+    });
+    
+    const result = { 
       movies: movieData,
       tv: tvData
-    });
+    };
+    
+    // 更新缓存
+    trendsCacheData = result;
+    trendsCacheExpiry = Date.now() + TRENDS_CACHE_TTL;
+    
+    res.json(result);
   } catch (error) {
     console.error('获取 Emby 趋势错误:', error);
     res.json({ 
@@ -1029,6 +1215,14 @@ app.post('/api/request', requireAuth, async (req, res) => {
       vote_average: 0,
       popularity: 0
     });
+    
+    // 清除订阅列表缓存，强制下次刷新
+    subscriptionsCache = null;
+    subscriptionsCacheExpiry = 0;
+    
+    // 清除 Emby 库缓存中的这个项目
+    const cacheKey = `${mediaType}_${id}`;
+    embyLibraryCache.delete(cacheKey);
     
     return res.json({ 
       success: true, 

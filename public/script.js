@@ -657,12 +657,14 @@ function displayMovies(movies, container) {
   container.innerHTML = movies.map(movie => {
     const requested = movie.requested || false;
     const mediaType = container.id === 'trendingMovies' ? 'movie' : 'tv';
+    // 使用更小的图片尺寸以加快加载
+    const posterUrl = movie.poster ? movie.poster.replace('/w500/', '/w342/') : null;
     
     if (movie.inLibrary) {
       return `
         <div class="movie-card">
           <div class="movie-poster-wrapper">
-            ${movie.poster ? `<img src="${movie.poster}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
+            ${posterUrl ? `<img src="${posterUrl}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
             <div class="movie-rating">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#fbbf24" stroke="none">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -687,7 +689,7 @@ function displayMovies(movies, container) {
       return `
         <div class="movie-card">
           <div class="movie-poster-wrapper">
-            ${movie.poster ? `<img src="${movie.poster}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
+            ${posterUrl ? `<img src="${posterUrl}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
             <div class="movie-rating">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#fbbf24" stroke="none">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -713,7 +715,7 @@ function displayMovies(movies, container) {
       return `
         <div class="movie-card">
           <div class="movie-poster-wrapper">
-            ${movie.poster ? `<img src="${movie.poster}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
+            ${posterUrl ? `<img src="${posterUrl}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
             <div class="movie-rating">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#fbbf24" stroke="none">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
