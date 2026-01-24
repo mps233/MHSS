@@ -1,8 +1,0 @@
-{
-  "ignore": ["requested-movies.json", "public/*", "node_modules/*"],
-  "watch": ["server.js", ".env"],
-  "ext": "js,json",
-  "env": {
-    "NODE_ENV": "development"
-  }
-}

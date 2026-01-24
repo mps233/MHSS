@@ -4,7 +4,7 @@ if (!token) {
   window.location.href = '/login';
 }
 
-// 验证token
+// 验证token并检查账号状态
 async function verifyToken() {
   try {
     const response = await fetch('/api/verify', {
@@ -14,6 +14,18 @@ async function verifyToken() {
     });
     
     if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      
+      // 如果是账号问题，清除登录状态并跳转到登录页
+      if (data.error === 'account_deleted' || data.error === 'account_disabled') {
+        console.log('账号状态异常，需要重新登录');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        return;
+      }
+      
+      // 其他错误也清除登录状态
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -23,7 +35,11 @@ async function verifyToken() {
   }
 }
 
+// 首次验证
 verifyToken();
+
+// 定期检查账号状态（每5分钟检查一次）
+setInterval(verifyToken, 5 * 60 * 1000);
 
 // API请求辅助函数
 async function fetchWithAuth(url, options = {}) {
@@ -237,9 +253,14 @@ async function loadEmbyStats() {
   }
 }
 
-loadEmbyStats();
-loadTrending(); // 页面加载时获取热门内容
-loadRecentRequests(); // 加载最近请求
+// 并行加载所有数据，提升首页加载速度
+Promise.all([
+  loadEmbyStats(),
+  loadTrending(),
+  loadRecentRequests()
+]).catch(error => {
+  console.error('加载页面数据失败:', error);
+});
 
 // 桌面端下拉菜单
 setTimeout(() => {
@@ -503,16 +524,19 @@ if (recentCard && recentSpotlight) {
 }
 
 // 加载热门内容
+// 加载热门内容
 async function loadTrending() {
   try {
-    // 加载热门电影
-    const moviesResponse = await fetchWithAuth('/api/trending/movies');
+    // 并行加载热门电影和电视剧
+    const [moviesResponse, tvResponse] = await Promise.all([
+      fetchWithAuth('/api/trending/movies'),
+      fetchWithAuth('/api/trending/tv')
+    ]);
+    
     const moviesData = await moviesResponse.json();
-    displayMovies(moviesData.results, trendingMovies);
-
-    // 加载热门电视剧
-    const tvResponse = await fetchWithAuth('/api/trending/tv');
     const tvData = await tvResponse.json();
+    
+    displayMovies(moviesData.results, trendingMovies);
     displayMovies(tvData.results, trendingTV);
   } catch (error) {
     console.error('加载热门内容失败:', error);

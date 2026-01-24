@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tangpaofan-v2'; // 改变版本号强制更新
+const CACHE_NAME = 'mhss-v3'; // 改变版本号强制更新
 const urlsToCache = [
   '/',
   '/index.html',
@@ -40,34 +40,29 @@ self.addEventListener('activate', event => {
   );
 });
 
-// 拦截请求
+// 拦截请求 - 网络优先策略
 self.addEventListener('fetch', event => {
   event.respondWith(
-    caches.match(event.request)
+    // 先尝试网络请求
+    fetch(event.request)
       .then(response => {
-        // 如果缓存中有，返回缓存
-        if (response) {
+        // 检查是否是有效响应
+        if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
         }
         
-        // 否则发起网络请求
-        return fetch(event.request).then(response => {
-          // 检查是否是有效响应
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
-          
-          // 克隆响应
-          const responseToCache = response.clone();
-          
-          // 缓存新请求
-          caches.open(CACHE_NAME)
-            .then(cache => {
-              cache.put(event.request, responseToCache);
-            });
-          
-          return response;
-        });
+        // 克隆响应并更新缓存
+        const responseToCache = response.clone();
+        caches.open(CACHE_NAME)
+          .then(cache => {
+            cache.put(event.request, responseToCache);
+          });
+        
+        return response;
+      })
+      .catch(() => {
+        // 网络失败时才使用缓存
+        return caches.match(event.request);
       })
   );
 });

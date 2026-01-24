@@ -21,7 +21,7 @@ if (proxyAgent) {
 
 // 创建带代理的 fetch 函数
 function fetchWithProxy(url, options = {}) {
-  if (proxyAgent && url.startsWith('https://api.themoviedb.org')) {
+  if (proxyAgent && url.startsWith('https://api.tmdb.org')) {
     return fetch(url, { ...options, agent: proxyAgent });
   }
   return fetch(url, options);
@@ -380,7 +380,17 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static('public'));
+// 静态文件服务 - 禁用缓存
+app.use(express.static('public', {
+  setHeaders: (res, path) => {
+    // 对 HTML、JS、CSS 文件禁用缓存
+    if (path.endsWith('.html') || path.endsWith('.js') || path.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // 路由：登录页面
 app.get('/login', (req, res) => {
@@ -474,8 +484,63 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// 验证token
-app.get('/api/verify', requireAuth, (req, res) => {
+// 验证token并检查 Emby 账号状态
+app.get('/api/verify', requireAuth, async (req, res) => {
+  // 检查 Emby 账号是否还存在
+  if (process.env.EMBY_URL && process.env.EMBY_API_KEY && req.user) {
+    try {
+      const userId = req.user.id || req.user.userId;
+      const username = req.user.name || req.user.username;
+      
+      const response = await fetch(
+        `${process.env.EMBY_URL}/Users/${userId}?api_key=${process.env.EMBY_API_KEY}`
+      );
+      
+      if (!response.ok) {
+        // 账号不存在或被删除，清除该用户的 session
+        console.log(`⚠️  Emby 账号已被删除: ${username} (ID: ${userId})`);
+        
+        // 删除该用户的所有 session
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        if (token && sessions.has(token)) {
+          sessions.delete(token);
+          saveSessions();
+          console.log(`   已清除失效的 session`);
+        }
+        
+        return res.status(401).json({ 
+          success: false, 
+          error: 'account_deleted',
+          message: '您的账号已被删除或禁用' 
+        });
+      }
+      
+      const userData = await response.json();
+      
+      // 检查账号是否被禁用
+      if (userData.Policy && userData.Policy.IsDisabled) {
+        console.log(`⚠️  Emby 账号已被禁用: ${username}`);
+        
+        // 删除该用户的 session
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        if (token && sessions.has(token)) {
+          sessions.delete(token);
+          saveSessions();
+          console.log(`   已清除被禁用账号的 session`);
+        }
+        
+        return res.status(401).json({ 
+          success: false, 
+          error: 'account_disabled',
+          message: '您的账号已被禁用' 
+        });
+      }
+    } catch (error) {
+      console.error('检查 Emby 账号状态失败:', error);
+      // 如果检查失败，仍然允许访问（避免因网络问题误判）
+    }
+  }
+  
   res.json({ success: true, user: req.user });
 });
 
@@ -489,7 +554,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
   try {
     const response = await fetchWithProxy(
-      `https://api.themoviedb.org/3/search/multi?api_key=${process.env.TMDB_API_KEY}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`
+      `https://api.tmdb.org/3/search/multi?api_key=${process.env.TMDB_API_KEY}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`
     );
     const data = await response.json();
     
@@ -547,17 +612,17 @@ app.get('/api/search', requireAuth, async (req, res) => {
       }
     }
 
-    // 检查 Emby 库中是否已有这些影片
+    // 检查 Emby 库中是否已有这些影片（并行检查）
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
       try {
-        for (let item of results) {
+        await Promise.all(results.map(async (item) => {
           const itemType = item.mediaType === 'movie' ? 'Movie' : 'Series';
           const searchResponse = await fetch(
             `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&searchTerm=${encodeURIComponent(item.title)}&IncludeItemTypes=${itemType}&Recursive=true`
           );
           const searchData = await searchResponse.json();
           item.inLibrary = searchData.Items && searchData.Items.length > 0;
-        }
+        }));
       } catch (error) {
         console.error('检查 Emby 库错误:', error);
       }
@@ -574,7 +639,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
 app.get('/api/trending/movies', requireAuth, async (req, res) => {
   try {
     const response = await fetchWithProxy(
-      `https://api.themoviedb.org/3/trending/movie/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
+      `https://api.tmdb.org/3/trending/movie/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
     );
     const data = await response.json();
     
@@ -610,16 +675,16 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
       }
     }
 
-    // 检查 Emby 库中是否已有这些电影
+    // 检查 Emby 库中是否已有这些电影（并行检查）
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
       try {
-        for (let movie of results) {
+        await Promise.all(results.map(async (movie) => {
           const searchResponse = await fetch(
             `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&searchTerm=${encodeURIComponent(movie.title)}&IncludeItemTypes=Movie&Recursive=true`
           );
           const searchData = await searchResponse.json();
           movie.inLibrary = searchData.Items && searchData.Items.length > 0;
-        }
+        }));
       } catch (error) {
         console.error('检查 Emby 库错误:', error);
       }
@@ -636,7 +701,7 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
 app.get('/api/trending/tv', requireAuth, async (req, res) => {
   try {
     const response = await fetchWithProxy(
-      `https://api.themoviedb.org/3/trending/tv/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
+      `https://api.tmdb.org/3/trending/tv/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
     );
     const data = await response.json();
     
@@ -672,16 +737,16 @@ app.get('/api/trending/tv', requireAuth, async (req, res) => {
       }
     }
 
-    // 检查 Emby 库中是否已有这些电视剧
+    // 检查 Emby 库中是否已有这些电视剧（并行检查）
     if (process.env.EMBY_URL && process.env.EMBY_API_KEY) {
       try {
-        for (let show of results) {
+        await Promise.all(results.map(async (show) => {
           const searchResponse = await fetch(
             `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&searchTerm=${encodeURIComponent(show.title)}&IncludeItemTypes=Series&Recursive=true`
           );
           const searchData = await searchResponse.json();
           show.inLibrary = searchData.Items && searchData.Items.length > 0;
-        }
+        }));
       } catch (error) {
         console.error('检查 Emby 库错误:', error);
       }
@@ -725,6 +790,17 @@ app.get('/api/emby/stats', async (req, res) => {
     const response = await fetch(
       `${process.env.EMBY_URL}/Items/Counts?api_key=${process.env.EMBY_API_KEY}`
     );
+    
+    if (!response.ok) {
+      console.error(`❌ Emby 连接失败: HTTP ${response.status} ${response.statusText}`);
+      return res.json({ 
+        total: null, 
+        embyUrl: null,
+        todayRequests: todayRequests,
+        error: `HTTP ${response.status}: ${response.statusText}`
+      });
+    }
+    
     const data = await response.json();
     
     // 电影 + 剧集的总数
@@ -739,11 +815,19 @@ app.get('/api/emby/stats', async (req, res) => {
       todayRequests: todayRequests
     });
   } catch (error) {
-    console.error('获取 Emby 统计错误:', error);
+    console.error('❌ Emby 连接错误:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      syscall: error.syscall,
+      address: error.address,
+      port: error.port
+    });
     res.json({ 
       total: null, 
       embyUrl: null,
-      todayRequests: todayRequests
+      todayRequests: todayRequests,
+      error: error.message || '连接失败'
     });
   }
 });
@@ -753,20 +837,32 @@ app.get('/api/tmdb/status', requireAuth, async (req, res) => {
   try {
     const startTime = Date.now();
     const response = await fetchWithProxy(
-      `https://api.themoviedb.org/3/configuration?api_key=${process.env.TMDB_API_KEY}`
+      `https://api.tmdb.org/3/configuration?api_key=${process.env.TMDB_API_KEY}`
     );
     const ping = Date.now() - startTime;
-    const online = response.ok;
+    
+    if (!response.ok) {
+      console.error(`❌ TMDB 连接失败: HTTP ${response.status} ${response.statusText}`);
+      return res.json({ 
+        online: false,
+        ping: 0,
+        error: `HTTP ${response.status}: ${response.statusText}`
+      });
+    }
     
     res.json({ 
-      online,
+      online: true,
       ping
     });
   } catch (error) {
-    console.error('检查 TMDB 状态错误:', error);
+    console.error('❌ TMDB 连接错误:', {
+      message: error.message,
+      code: error.code
+    });
     res.json({ 
       online: false,
-      ping: 0
+      ping: 0,
+      error: error.message || '连接失败'
     });
   }
 });
@@ -893,7 +989,7 @@ app.post('/api/request', requireAuth, async (req, res) => {
     let fullMovieData = movieData;
     if (!fullMovieData || !fullMovieData.overview) {
       const tmdbResponse = await fetchWithProxy(
-        `https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
+        `https://api.tmdb.org/3/${mediaType}/${id}?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
       );
       if (tmdbResponse.ok) {
         fullMovieData = await tmdbResponse.json();
@@ -953,12 +1049,22 @@ async function startServer() {
       const testResponse = await fetch(`${process.env.MEDIAHELPER_URL}/`, {
         method: 'GET',
         timeout: 5000
-      }).catch(e => null);
+      }).catch(e => {
+        console.error(`   ❌ 无法访问 MediaHelper: ${e.message}`);
+        if (e.code === 'ECONNREFUSED') {
+          console.error(`   💡 连接被拒绝，请确认 MediaHelper 服务是否运行`);
+        } else if (e.code === 'ENOTFOUND') {
+          console.error(`   💡 域名解析失败，请检查 URL 是否正确`);
+        } else if (e.code === 'ETIMEDOUT') {
+          console.error(`   � 连接超时，请检查网络或防火墙设置`);
+        }
+        return null;
+      });
       
       if (testResponse) {
         console.log(`   ✅ MediaHelper 服务可访问 (状态: ${testResponse.status})`);
       } else {
-        console.log(`   ⚠️  MediaHelper 服务无法访问，请检查 URL 是否正确`);
+        console.log(`   ⚠️  MediaHelper 服务无法访问，但将继续尝试登录`);
       }
       
       // 尝试登录测试
@@ -966,12 +1072,17 @@ async function startServer() {
       await getMediaHelperToken();
       console.log('   ✅ MediaHelper 登录成功\n');
     } catch (error) {
-      console.error('   ❌ MediaHelper 连接失败:', error.message);
-      console.error('   💡 提示：');
+      console.error('   ❌ MediaHelper 连接失败:');
+      console.error(`      错误: ${error.message}`);
+      if (error.code) {
+        console.error(`      错误码: ${error.code}`);
+      }
+      console.error('   💡 故障排查：');
       console.error('      1. 检查 MEDIAHELPER_URL 是否正确');
       console.error('      2. 确认 MediaHelper 服务是否运行');
-      console.error('      3. 检查网络连接（如果使用 Docker，确保在同一网络）');
-      console.error('      4. 确认 API 路径是否为 /api/v1/auth/login\n');
+      console.error('      3. 检查用户名和密码是否正确');
+      console.error('      4. 检查网络连接（如果使用 Docker，确保在同一网络）');
+      console.error('      5. 确认 API 路径是否为 /api/v1/auth/login\n');
     }
   }
   

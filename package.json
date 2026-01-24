@@ -4,9 +4,7 @@
   "description": "自助求片网站",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "concurrently \"nodemon server.js\" \"npm run browser-sync\"",
-    "browser-sync": "sleep 3 && browser-sync start --proxy localhost:3000 --files 'public/**/*'"
+    "start": "node server.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
@@ -14,10 +12,5 @@
     "express": "^4.18.2",
     "https-proxy-agent": "^5.0.1",
     "node-fetch": "^2.7.0"
-  },
-  "devDependencies": {
-    "browser-sync": "^3.0.4",
-    "concurrently": "^9.2.1",
-    "nodemon": "^3.1.11"
   }
 }
