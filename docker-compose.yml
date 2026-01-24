@@ -12,7 +12,7 @@ services:
       - TMDB_API_KEY=你的TMDB_API_KEY
       - EMBY_URL=你的Emby服务器地址
       - EMBY_API_KEY=你的Emby_API_KEY
-      - MEDIAHELP_URL=你的MediaHelp服务器地址
-      - MEDIAHELP_USERNAME=你的MediaHelp用户名
-      - MEDIAHELP_PASSWORD=你的MediaHelp密码
+      - MEDIAHELPER_URL=你的MediaHelper服务器地址
+      - MEDIAHELPER_USERNAME=你的MediaHelper用户名
+      - MEDIAHELPER_PASSWORD=你的MediaHelper密码
       - PORT=3000

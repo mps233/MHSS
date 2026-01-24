@@ -148,43 +148,43 @@ async function checkServicesStatus() {
     if (mobileEmbyPingEl) mobileEmbyPingEl.textContent = '离线';
   }
   
-  // 检查 MediaHelp 状态
+  // 检查 MediaHelper 状态
   try {
     const startTime = performance.now();
-    const mediahelpResponse = await fetchWithAuth('/api/recent-requests');
-    const mediahelpData = await mediahelpResponse.json();
-    const mediahelpPing = Math.round(performance.now() - startTime);
-    const mediahelpOnline = mediahelpData.requests && mediahelpData.requests.length >= 0;
+    const mediahelperResponse = await fetchWithAuth('/api/recent-requests');
+    const mediahelperData = await mediahelperResponse.json();
+    const mediahelperPing = Math.round(performance.now() - startTime);
+    const mediahelperOnline = mediahelperData.requests && mediahelperData.requests.length >= 0;
     
     // 更新桌面端状态点和延迟
-    const mediahelpStatusDot = document.getElementById('mediahelpStatusDot');
-    const mediahelpPingEl = document.getElementById('mediahelpPing');
-    if (mediahelpStatusDot) {
-      mediahelpStatusDot.className = `status-dot ${mediahelpOnline ? 'online' : 'offline'}`;
+    const mediahelperStatusDot = document.getElementById('mediahelperStatusDot');
+    const mediahelperPingEl = document.getElementById('mediahelperPing');
+    if (mediahelperStatusDot) {
+      mediahelperStatusDot.className = `status-dot ${mediahelperOnline ? 'online' : 'offline'}`;
     }
-    if (mediahelpPingEl) {
-      mediahelpPingEl.textContent = mediahelpOnline ? `${mediahelpPing}ms` : '离线';
+    if (mediahelperPingEl) {
+      mediahelperPingEl.textContent = mediahelperOnline ? `${mediahelperPing}ms` : '离线';
     }
     
     // 更新移动端状态点和延迟
-    const mobileMediahelpStatusDot = document.getElementById('mobileMediahelpStatusDot');
-    const mobileMediahelpPingEl = document.getElementById('mobileMediahelpPing');
-    if (mobileMediahelpStatusDot) {
-      mobileMediahelpStatusDot.className = `status-dot ${mediahelpOnline ? 'online' : 'offline'}`;
+    const mobileMediahelperStatusDot = document.getElementById('mobileMediahelperStatusDot');
+    const mobileMediahelperPingEl = document.getElementById('mobileMediahelperPing');
+    if (mobileMediahelperStatusDot) {
+      mobileMediahelperStatusDot.className = `status-dot ${mediahelperOnline ? 'online' : 'offline'}`;
     }
-    if (mobileMediahelpPingEl) {
-      mobileMediahelpPingEl.textContent = mediahelpOnline ? `${mediahelpPing}ms` : '离线';
+    if (mobileMediahelperPingEl) {
+      mobileMediahelperPingEl.textContent = mediahelperOnline ? `${mediahelperPing}ms` : '离线';
     }
   } catch (error) {
-    console.error('检查 MediaHelp 状态失败:', error);
-    const mediahelpStatusDot = document.getElementById('mediahelpStatusDot');
-    const mobileMediahelpStatusDot = document.getElementById('mobileMediahelpStatusDot');
-    const mediahelpPingEl = document.getElementById('mediahelpPing');
-    const mobileMediahelpPingEl = document.getElementById('mobileMediahelpPing');
-    if (mediahelpStatusDot) mediahelpStatusDot.className = 'status-dot offline';
-    if (mobileMediahelpStatusDot) mobileMediahelpStatusDot.className = 'status-dot offline';
-    if (mediahelpPingEl) mediahelpPingEl.textContent = '离线';
-    if (mobileMediahelpPingEl) mobileMediahelpPingEl.textContent = '离线';
+    console.error('检查 MediaHelper 状态失败:', error);
+    const mediahelperStatusDot = document.getElementById('mediahelperStatusDot');
+    const mobileMediahelperStatusDot = document.getElementById('mobileMediahelperStatusDot');
+    const mediahelperPingEl = document.getElementById('mediahelperPing');
+    const mobileMediahelperPingEl = document.getElementById('mobileMediahelperPing');
+    if (mediahelperStatusDot) mediahelperStatusDot.className = 'status-dot offline';
+    if (mobileMediahelperStatusDot) mobileMediahelperStatusDot.className = 'status-dot offline';
+    if (mediahelperPingEl) mediahelperPingEl.textContent = '离线';
+    if (mobileMediahelperPingEl) mobileMediahelperPingEl.textContent = '离线';
   }
   
   // 检查 TMDB 状态
@@ -1037,13 +1037,13 @@ if (footerStatusLink) {
     await checkServicesStatus();
     
     const embyDot = document.getElementById('embyStatusDot');
-    const mediahelpDot = document.getElementById('mediahelpStatusDot');
+    const mediahelperDot = document.getElementById('mediahelperStatusDot');
     const embyOnline = embyDot && embyDot.classList.contains('online');
-    const mediahelpOnline = mediahelpDot && mediahelpDot.classList.contains('online');
+    const mediahelperOnline = mediahelperDot && mediahelperDot.classList.contains('online');
     
     let message = '服务状态：\n\n';
     message += embyOnline ? '✅ Emby 服务正常运行\n' : '❌ Emby 服务离线\n';
-    message += mediahelpOnline ? '✅ MediaHelp 服务正常运行' : '❌ MediaHelp 服务离线';
+    message += mediahelperOnline ? '✅ MediaHelper 服务正常运行' : '❌ MediaHelper 服务离线';
     alert(message);
   });
 }

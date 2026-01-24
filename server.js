@@ -40,22 +40,22 @@ function saveSessions() {
 
 const sessions = loadSessions(); // 存储用户session
 
-// MediaHelp Token 管理
-let mediaHelpToken = null;
-let mediaHelpTokenExpiry = 0;
-let mediaHelpDefaults = null; // 缓存默认配置
+// MediaHelper Token 管理
+let mediaHelperToken = null;
+let mediaHelperTokenExpiry = 0;
+let mediaHelperDefaults = null; // 缓存默认配置
 
-// 获取 MediaHelp 默认配置
-async function getMediaHelpDefaults() {
+// 获取 MediaHelper 默认配置
+async function getMediaHelperDefaults() {
   // 如果已经缓存了，直接返回
-  if (mediaHelpDefaults) {
-    return mediaHelpDefaults;
+  if (mediaHelperDefaults) {
+    return mediaHelperDefaults;
   }
 
-  const token = await getMediaHelpToken();
+  const token = await getMediaHelperToken();
   
   try {
-    const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/subscription/config/cloud-defaults`, {
+    const response = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/subscription/config/cloud-defaults`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -68,74 +68,74 @@ async function getMediaHelpDefaults() {
     }
 
     const data = await response.json();
-    console.log('MediaHelp 默认配置:', JSON.stringify(data, null, 2));
+    console.log('MediaHelper 默认配置:', JSON.stringify(data, null, 2));
     
     // 缓存默认配置
-    mediaHelpDefaults = data.data || data;
-    return mediaHelpDefaults;
+    mediaHelperDefaults = data.data || data;
+    return mediaHelperDefaults;
   } catch (error) {
-    console.error('获取 MediaHelp 默认配置失败:', error);
+    console.error('获取 MediaHelper 默认配置失败:', error);
     // 返回空对象，让后续代码使用环境变量
     return {};
   }
 }
 
-// 登录 MediaHelp 获取 Token
-async function getMediaHelpToken() {
+// 登录 MediaHelper 获取 Token
+async function getMediaHelperToken() {
   // 如果 token 还有效，直接返回
-  if (mediaHelpToken && Date.now() < mediaHelpTokenExpiry) {
-    return mediaHelpToken;
+  if (mediaHelperToken && Date.now() < mediaHelperTokenExpiry) {
+    return mediaHelperToken;
   }
 
-  if (!process.env.MEDIAHELP_URL || !process.env.MEDIAHELP_USERNAME || !process.env.MEDIAHELP_PASSWORD) {
-    throw new Error('MediaHelp 未配置');
+  if (!process.env.MEDIAHELPER_URL || !process.env.MEDIAHELPER_USERNAME || !process.env.MEDIAHELPER_PASSWORD) {
+    throw new Error('MediaHelper 未配置');
   }
 
   try {
-    console.log(`正在登录 MediaHelp: ${process.env.MEDIAHELP_URL}`);
-    const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/auth/login`, {
+    console.log(`正在登录 MediaHelper: ${process.env.MEDIAHELPER_URL}`);
+    const response = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        username: process.env.MEDIAHELP_USERNAME,
-        password: process.env.MEDIAHELP_PASSWORD
+        username: process.env.MEDIAHELPER_USERNAME,
+        password: process.env.MEDIAHELPER_PASSWORD
       })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`MediaHelp 登录失败: ${errorText}`);
+      throw new Error(`MediaHelper 登录失败: ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('MediaHelp 登录响应:', JSON.stringify(data, null, 2));
+    console.log('MediaHelper 登录响应:', JSON.stringify(data, null, 2));
     
     // 尝试不同的 token 字段名
-    mediaHelpToken = data.data?.token || data.token || data.access_token || data.data?.access_token;
+    mediaHelperToken = data.data?.token || data.token || data.access_token || data.data?.access_token;
     
-    if (!mediaHelpToken) {
+    if (!mediaHelperToken) {
       throw new Error('无法从响应中获取 token: ' + JSON.stringify(data));
     }
     
     // Token 有效期设为 23 小时（假设 24 小时有效期）
-    mediaHelpTokenExpiry = Date.now() + 23 * 60 * 60 * 1000;
+    mediaHelperTokenExpiry = Date.now() + 23 * 60 * 60 * 1000;
     
-    console.log('✅ MediaHelp 登录成功，Token:', mediaHelpToken.substring(0, 20) + '...');
-    return mediaHelpToken;
+    console.log('✅ MediaHelper 登录成功，Token:', mediaHelperToken.substring(0, 20) + '...');
+    return mediaHelperToken;
   } catch (error) {
-    console.error('MediaHelp 登录错误:', error);
+    console.error('MediaHelper 登录错误:', error);
     throw error;
   }
 }
 
-// 获取 MediaHelp 订阅列表
-async function getMediaHelpSubscriptions() {
+// 获取 MediaHelper 订阅列表
+async function getMediaHelperSubscriptions() {
   try {
-    const token = await getMediaHelpToken();
+    const token = await getMediaHelperToken();
     
-    const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/subscription/list`, {
+    const response = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/subscription/list`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -148,18 +148,18 @@ async function getMediaHelpSubscriptions() {
     }
 
     const data = await response.json();
-    console.log('MediaHelp 订阅列表:', JSON.stringify(data, null, 2));
+    console.log('MediaHelper 订阅列表:', JSON.stringify(data, null, 2));
     
     // 返回订阅列表
     return data.data || data;
   } catch (error) {
-    console.error('获取 MediaHelp 订阅列表失败:', error);
+    console.error('获取 MediaHelper 订阅列表失败:', error);
     return [];
   }
 }
-async function createMediaHelpSubscription(movieData) {
-  const token = await getMediaHelpToken();
-  const defaults = await getMediaHelpDefaults();
+async function createMediaHelperSubscription(movieData) {
+  const token = await getMediaHelperToken();
+  const defaults = await getMediaHelperDefaults();
   
   // 从 movieData 中提取数据，兼容不同的字段名
   const title = movieData.title || movieData.name || '';
@@ -179,8 +179,8 @@ async function createMediaHelpSubscription(movieData) {
     popularity: movieData.popularity || 0,
     search_keywords: title,
     quality_preference: 'auto',
-    cron: process.env.MEDIAHELP_CRON || defaults.cron || '0 19,21,23 * * *',
-    cloud_type: process.env.MEDIAHELP_CLOUD_TYPE || defaults.cloud_type || 'drive115',
+    cron: process.env.MEDIAHELPER_CRON || defaults.cron || '0 19,21,23 * * *',
+    cloud_type: process.env.MEDIAHELPER_CLOUD_TYPE || defaults.cloud_type || 'drive115',
     custom_name: title,
     selected_seasons: [],
     user_custom_links: []
@@ -199,21 +199,21 @@ async function createMediaHelpSubscription(movieData) {
   }
   
   // 环境变量优先级更高
-  if (process.env.MEDIAHELP_TARGET_DIRECTORY) {
-    subscriptionData.target_directory = process.env.MEDIAHELP_TARGET_DIRECTORY;
+  if (process.env.MEDIAHELPER_TARGET_DIRECTORY) {
+    subscriptionData.target_directory = process.env.MEDIAHELPER_TARGET_DIRECTORY;
   }
   
-  if (process.env.MEDIAHELP_ACCOUNT_IDENTIFIER) {
-    subscriptionData.account_identifier = process.env.MEDIAHELP_ACCOUNT_IDENTIFIER;
+  if (process.env.MEDIAHELPER_ACCOUNT_IDENTIFIER) {
+    subscriptionData.account_identifier = process.env.MEDIAHELPER_ACCOUNT_IDENTIFIER;
   }
 
   console.log('创建订阅请求:', {
-    url: `${process.env.MEDIAHELP_URL}/api/v1/subscription/create`,
+    url: `${process.env.MEDIAHELPER_URL}/api/v1/subscription/create`,
     token: token.substring(0, 20) + '...',
     data: subscriptionData
   });
 
-  const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/subscription/create`, {
+  const response = await fetch(`${process.env.MEDIAHELPER_URL}/api/v1/subscription/create`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -431,7 +431,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
         poster: item.poster_path ? `https://image.tmdb.org/t/p/w200${item.poster_path}` : null,
         mediaType: item.media_type,
         requested: false, // 不再检查本地请求状态
-        // 添加完整的 TMDB 数据供 MediaHelp 使用
+        // 添加完整的 TMDB 数据供 MediaHelper 使用
         tmdbData: {
           id: item.id,
           title: item.title,
@@ -552,11 +552,11 @@ app.get('/api/trending/tv', requireAuth, async (req, res) => {
 
 // 获取 Emby 影片库统计
 app.get('/api/emby/stats', async (req, res) => {
-  // 计算今日请求数（从 MediaHelp 订阅列表）
+  // 计算今日请求数（从 MediaHelper 订阅列表）
   let todayRequests = 0;
   try {
-    if (process.env.MEDIAHELP_URL && process.env.MEDIAHELP_USERNAME) {
-      const data = await getMediaHelpSubscriptions();
+    if (process.env.MEDIAHELPER_URL && process.env.MEDIAHELPER_USERNAME) {
+      const data = await getMediaHelperSubscriptions();
       if (data && data.subscriptions) {
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
         todayRequests = data.subscriptions.filter(sub => {
@@ -680,16 +680,16 @@ app.get('/api/emby/trends', async (req, res) => {
 // 获取最近请求
 app.get('/api/recent-requests', async (req, res) => {
   try {
-    // 从 MediaHelp 获取订阅列表
-    if (!process.env.MEDIAHELP_URL || !process.env.MEDIAHELP_USERNAME) {
+    // 从 MediaHelper 获取订阅列表
+    if (!process.env.MEDIAHELPER_URL || !process.env.MEDIAHELPER_USERNAME) {
       return res.json({ requests: [] });
     }
 
-    const data = await getMediaHelpSubscriptions();
-    console.log('MediaHelp 订阅数据:', JSON.stringify(data, null, 2));
+    const data = await getMediaHelperSubscriptions();
+    console.log('MediaHelper 订阅数据:', JSON.stringify(data, null, 2));
     
     if (data && data.subscriptions && data.subscriptions.length > 0) {
-      // 转换 MediaHelp 订阅数据为前端需要的格式
+      // 转换 MediaHelper 订阅数据为前端需要的格式
       const requestsWithPosters = data.subscriptions.slice(0, 30).map(sub => {
         const info = sub.subscription_info || {};
         const params = sub.params || {};
@@ -701,10 +701,10 @@ app.get('/api/recent-requests', async (req, res) => {
           posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
         }
         
-        // 处理时间 - MediaHelp 返回的时间是 UTC 时间但没有 Z 后缀
+        // 处理时间 - MediaHelper 返回的时间是 UTC 时间但没有 Z 后缀
         let requestedAt = sub.created_at || sub.updated_at;
         if (requestedAt && !requestedAt.endsWith('Z')) {
-          // MediaHelp 返回的时间格式: "2026-01-24T05:35:45.153747"
+          // MediaHelper 返回的时间格式: "2026-01-24T05:35:45.153747"
           // 这是 UTC 时间，添加 Z 后缀让前端正确解析
           requestedAt = requestedAt + 'Z';
         }
@@ -729,7 +729,7 @@ app.get('/api/recent-requests', async (req, res) => {
   }
 });
 
-// 发送请求（使用 MediaHelp）
+// 发送请求（使用 MediaHelper）
 app.post('/api/request', requireAuth, async (req, res) => {
   const { id, title, mediaType, movieData } = req.body;
   
@@ -737,13 +737,13 @@ app.post('/api/request', requireAuth, async (req, res) => {
     return res.status(400).json({ error: '请提供完整的影片信息' });
   }
 
-  // 检查 MediaHelp 配置
-  if (!process.env.MEDIAHELP_URL || !process.env.MEDIAHELP_USERNAME) {
-    return res.status(500).json({ error: 'MediaHelp 未配置，请联系管理员' });
+  // 检查 MediaHelper 配置
+  if (!process.env.MEDIAHELPER_URL || !process.env.MEDIAHELPER_USERNAME) {
+    return res.status(500).json({ error: 'MediaHelper 未配置，请联系管理员' });
   }
 
   try {
-    console.log(`使用 MediaHelp 创建订阅: ${title}`);
+    console.log(`使用 MediaHelper 创建订阅: ${title}`);
     
     // 如果没有提供完整的 movieData，从 TMDB 获取
     let fullMovieData = movieData;
@@ -757,7 +757,7 @@ app.post('/api/request', requireAuth, async (req, res) => {
       }
     }
     
-    await createMediaHelpSubscription(fullMovieData || {
+    await createMediaHelperSubscription(fullMovieData || {
       id,
       title,
       media_type: mediaType,
@@ -771,17 +771,17 @@ app.post('/api/request', requireAuth, async (req, res) => {
     return res.json({ 
       success: true, 
       message: `已成功订阅《${title}》`,
-      method: 'mediahelp'
+      method: 'mediahelper'
     });
   } catch (error) {
-    console.error('MediaHelp 订阅失败:', error);
+    console.error('MediaHelper 订阅失败:', error);
     
     // 如果是"已存在订阅"的错误，直接返回成功
     if (error.message && error.message.includes('已存在')) {
       return res.json({ 
         success: true, 
         message: `《${title}》已在订阅列表中`,
-        method: 'mediahelp'
+        method: 'mediahelper'
       });
     }
     
