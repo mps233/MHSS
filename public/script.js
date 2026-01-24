@@ -348,9 +348,32 @@ async function loadRecentRequests() {
     
     if (data.requests && data.requests.length > 0) {
       displayRecentCarousel(data.requests);
+    } else {
+      // 没有数据时显示空状态
+      recentCarousel.innerHTML = `
+        <div class="empty-recent">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity="0.3">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>暂无请求记录</span>
+        </div>
+      `;
     }
   } catch (error) {
     console.error('加载最近请求失败:', error);
+    // 加载失败也显示空状态
+    recentCarousel.innerHTML = `
+      <div class="empty-recent">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity="0.3">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span>加载失败</span>
+      </div>
+    `;
   }
 }
 
@@ -985,6 +1008,7 @@ let libraryChart = null;
 
 async function initChart() {
   const ctx = document.getElementById('libraryChart');
+  const skeleton = document.getElementById('chartSkeleton');
   if (!ctx) return;
   
   try {
@@ -1100,8 +1124,14 @@ async function initChart() {
       }
     }
   });
+  
+    // 图表加载完成，隐藏骨架屏，显示图表
+    if (skeleton) skeleton.style.display = 'none';
+    ctx.style.display = 'block';
   } catch (error) {
     console.error('加载图表数据失败:', error);
+    // 加载失败也隐藏骨架屏
+    if (skeleton) skeleton.style.display = 'none';
   }
 }
 

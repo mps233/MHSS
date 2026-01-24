@@ -304,7 +304,23 @@
                   <span class="chart-period">最近7天</span>
                 </div>
                 <div class="chart-container">
-                  <canvas id="libraryChart"></canvas>
+                  <canvas id="libraryChart" style="display: none;"></canvas>
+                  <div class="chart-skeleton" id="chartSkeleton">
+                    <div class="skeleton-legend">
+                      <div class="skeleton-legend-item">
+                        <div class="skeleton-legend-dot"></div>
+                        <div class="skeleton-legend-text"></div>
+                      </div>
+                      <div class="skeleton-legend-item">
+                        <div class="skeleton-legend-dot"></div>
+                        <div class="skeleton-legend-text"></div>
+                      </div>
+                    </div>
+                    <div class="skeleton-chart-line">
+                      <div class="skeleton-curve-1"></div>
+                      <div class="skeleton-curve-2"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -326,13 +342,36 @@
               </div>
               <div class="carousel-container">
                 <div class="carousel-track" id="recentCarousel">
-                  <div class="empty-recent">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity="0.3">
-                      <circle cx="12" cy="12" r="10"/>
-                      <line x1="12" y1="8" x2="12" y2="12"/>
-                      <line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    <span>暂无请求记录</span>
+                  <!-- 骨架屏 -->
+                  <div class="recent-skeleton">
+                    <div class="skeleton-poster"></div>
+                    <div class="skeleton-info">
+                      <div class="skeleton-title"></div>
+                      <div class="skeleton-meta">
+                        <div class="skeleton-badge"></div>
+                        <div class="skeleton-time"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="recent-skeleton">
+                    <div class="skeleton-poster"></div>
+                    <div class="skeleton-info">
+                      <div class="skeleton-title"></div>
+                      <div class="skeleton-meta">
+                        <div class="skeleton-badge"></div>
+                        <div class="skeleton-time"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="recent-skeleton">
+                    <div class="skeleton-poster"></div>
+                    <div class="skeleton-info">
+                      <div class="skeleton-title"></div>
+                      <div class="skeleton-meta">
+                        <div class="skeleton-badge"></div>
+                        <div class="skeleton-time"></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -364,11 +403,128 @@
             <p class="section-subtitle">本周最受欢迎的电影</p>
           </div>
           <div id="trendingMovies" class="movie-grid">
-            <div class="loading-grid">
-              <div class="spinner"></div>
+            <!-- 骨架屏 -->
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
             </div>
           </div>
-          <div id="moviesPagination"></div>
+          <div id="moviesPagination">
+            <!-- 分页骨架屏 -->
+            <div class="pagination-skeleton">
+              <div class="skeleton-page-btn wide"></div>
+              <div class="skeleton-page-btn"></div>
+              <div class="skeleton-page-btn"></div>
+              <div class="skeleton-page-btn"></div>
+              <div class="skeleton-page-btn wide"></div>
+            </div>
+          </div>
         </section>
 
         <!-- 热门电视剧 -->
@@ -385,11 +541,128 @@
             <p class="section-subtitle">本周最受欢迎的电视剧</p>
           </div>
           <div id="trendingTV" class="movie-grid">
-            <div class="loading-grid">
-              <div class="spinner"></div>
+            <!-- 骨架屏 -->
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
+            </div>
+            <div class="movie-card-skeleton">
+              <div class="skeleton-movie-poster"></div>
+              <div class="skeleton-movie-info">
+                <div class="skeleton-movie-title"></div>
+                <div class="skeleton-movie-title-2"></div>
+                <div class="skeleton-movie-footer">
+                  <div class="skeleton-movie-year"></div>
+                  <div class="skeleton-movie-btn"></div>
+                </div>
+              </div>
             </div>
           </div>
-          <div id="tvPagination"></div>
+          <div id="tvPagination">
+            <!-- 分页骨架屏 -->
+            <div class="pagination-skeleton">
+              <div class="skeleton-page-btn wide"></div>
+              <div class="skeleton-page-btn"></div>
+              <div class="skeleton-page-btn"></div>
+              <div class="skeleton-page-btn"></div>
+              <div class="skeleton-page-btn wide"></div>
+            </div>
+          </div>
         </section>
       </div>
     </div>
