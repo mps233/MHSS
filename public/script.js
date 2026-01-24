@@ -523,26 +523,106 @@ if (recentCard && recentSpotlight) {
   });
 }
 
+// 分页状态
+let currentMoviePage = 1;
+let currentTVPage = 1;
+let totalMoviePages = 1;
+let totalTVPages = 1;
+
 // 加载热门内容
-// 加载热门内容
-async function loadTrending() {
+async function loadTrending(moviePage = 1, tvPage = 1) {
   try {
     // 并行加载热门电影和电视剧
     const [moviesResponse, tvResponse] = await Promise.all([
-      fetchWithAuth('/api/trending/movies'),
-      fetchWithAuth('/api/trending/tv')
+      fetchWithAuth(`/api/trending/movies?page=${moviePage}`),
+      fetchWithAuth(`/api/trending/tv?page=${tvPage}`)
     ]);
     
     const moviesData = await moviesResponse.json();
     const tvData = await tvResponse.json();
     
+    currentMoviePage = moviesData.page || 1;
+    currentTVPage = tvData.page || 1;
+    totalMoviePages = moviesData.total_pages || 1;
+    totalTVPages = tvData.total_pages || 1;
+    
     displayMovies(moviesData.results, trendingMovies);
     displayMovies(tvData.results, trendingTV);
+    
+    // 更新分页按钮
+    updatePagination('movies', currentMoviePage, totalMoviePages);
+    updatePagination('tv', currentTVPage, totalTVPages);
   } catch (error) {
     console.error('加载热门内容失败:', error);
     trendingMovies.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div><div style="color: #9ca3af;">加载失败</div></div>';
     trendingTV.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div><div style="color: #9ca3af;">加载失败</div></div>';
   }
+}
+
+// 更新分页按钮
+function updatePagination(type, currentPage, totalPages) {
+  const paginationId = type === 'movies' ? 'moviesPagination' : 'tvPagination';
+  const pagination = document.getElementById(paginationId);
+  
+  if (!pagination || totalPages <= 1) {
+    if (pagination) pagination.innerHTML = '';
+    return;
+  }
+  
+  let html = '<div class="pagination">';
+  
+  // 上一页
+  if (currentPage > 1) {
+    html += `<button class="page-btn" onclick="changePage('${type}', ${currentPage - 1})">上一页</button>`;
+  }
+  
+  // 页码
+  const maxButtons = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  
+  if (endPage - startPage < maxButtons - 1) {
+    startPage = Math.max(1, endPage - maxButtons + 1);
+  }
+  
+  if (startPage > 1) {
+    html += `<button class="page-btn" onclick="changePage('${type}', 1)">1</button>`;
+    if (startPage > 2) html += '<span class="page-dots">...</span>';
+  }
+  
+  for (let i = startPage; i <= endPage; i++) {
+    if (i === currentPage) {
+      html += `<button class="page-btn active">${i}</button>`;
+    } else {
+      html += `<button class="page-btn" onclick="changePage('${type}', ${i})">${i}</button>`;
+    }
+  }
+  
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) html += '<span class="page-dots">...</span>';
+    html += `<button class="page-btn" onclick="changePage('${type}', ${totalPages})">${totalPages}</button>`;
+  }
+  
+  // 下一页
+  if (currentPage < totalPages) {
+    html += `<button class="page-btn" onclick="changePage('${type}', ${currentPage + 1})">下一页</button>`;
+  }
+  
+  html += '</div>';
+  pagination.innerHTML = html;
+}
+
+// 切换页码
+function changePage(type, page) {
+  if (type === 'movies') {
+    loadTrending(page, currentTVPage);
+  } else {
+    loadTrending(currentMoviePage, page);
+  }
+  
+  // 滚动到对应区域
+  const section = type === 'movies' ? trendingMovies : trendingTV;
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function displayMovies(movies, container) {
@@ -631,7 +711,66 @@ function displayMovies(movies, container) {
       `;
     }
   }).join('');
+  
+  // 动态计算并隐藏超过2行的卡片
+  limitToTwoRows(container);
 }
+
+// 限制只显示指定行数
+function limitToTwoRows(container) {
+  setTimeout(() => {
+    const cards = container.querySelectorAll('.movie-card');
+    if (cards.length === 0) return;
+    
+    // 先显示所有卡片，让 Grid 自然布局
+    cards.forEach(card => card.style.display = '');
+    
+    // 等待布局完成后再计算
+    requestAnimationFrame(() => {
+      // 获取所有卡片的位置
+      const cardPositions = Array.from(cards).map(card => ({
+        card,
+        top: card.offsetTop
+      }));
+      
+      // 按 top 值分组，找出有多少行
+      const rows = [];
+      cardPositions.forEach(({ card, top }) => {
+        let rowIndex = rows.findIndex(row => Math.abs(row.top - top) < 5); // 允许5px误差
+        if (rowIndex === -1) {
+          rows.push({ top, cards: [card] });
+        } else {
+          rows[rowIndex].cards.push(card);
+        }
+      });
+      
+      // 根据屏幕宽度决定显示几行
+      let maxRows = 2; // 默认2行
+      if (window.innerWidth <= 768) {
+        maxRows = 4; // 平板和手机显示4行
+      }
+      if (window.innerWidth <= 480) {
+        maxRows = 5; // 小手机显示5行
+      }
+      
+      // 按 top 值排序
+      rows.sort((a, b) => a.top - b.top);
+      
+      // 隐藏超过指定行数的卡片
+      rows.forEach((row, index) => {
+        if (index >= maxRows) {
+          row.cards.forEach(card => card.style.display = 'none');
+        }
+      });
+    });
+  }, 100); // 等待DOM渲染完成
+}
+
+// 窗口大小改变时重新计算
+window.addEventListener('resize', () => {
+  limitToTwoRows(trendingMovies);
+  limitToTwoRows(trendingTV);
+});
 
 searchInput.addEventListener('input', (e) => {
   const query = e.target.value.trim();
@@ -885,7 +1024,7 @@ async function initChart() {
           pointHoverRadius: 4,
         },
         {
-          label: '电视剧',
+          label: '剧集',
           data: tvData,
           borderColor: 'rgba(139, 92, 246, 0.7)',
           backgroundColor: 'rgba(139, 92, 246, 0.08)',

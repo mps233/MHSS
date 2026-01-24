@@ -1719,6 +1719,8 @@ h1 {
   gap: 1.25rem;
 }
 
+/* 移除之前的 nth-child 隐藏规则 */
+
 .loading-grid {
   grid-column: 1 / -1;
   display: flex;
@@ -1966,6 +1968,13 @@ h1 {
   }
 }
 
+@media (max-width: 768px) {
+  .movie-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1rem;
+  }
+}
+
 @media (max-width: 640px) {
   body {
     padding-top: 60px;
@@ -2140,6 +2149,14 @@ h1 {
   }
 }
 
+/* 超小屏幕优化 */
+@media (max-width: 480px) {
+  .movie-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.75rem;
+  }
+}
+
 .subscribe-icon-btn svg {
   display: block;
 }
@@ -2310,5 +2327,56 @@ h1 {
     flex-direction: column;
     gap: 1rem;
     text-align: center;
+  }
+}
+
+/* 分页样式 */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 2rem 0;
+  flex-wrap: wrap;
+}
+
+.page-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+  min-width: 2.5rem;
+}
+
+.page-btn:hover:not(.active) {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: var(--purple-500);
+}
+
+.page-btn.active {
+  background: var(--purple-600);
+  color: white;
+  border-color: var(--purple-600);
+  cursor: default;
+}
+
+.page-dots {
+  color: var(--text-secondary);
+  padding: 0 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .pagination {
+    gap: 0.25rem;
+  }
+  
+  .page-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    min-width: 2rem;
   }
 }

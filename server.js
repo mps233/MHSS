@@ -638,12 +638,14 @@ app.get('/api/search', requireAuth, async (req, res) => {
 // 获取热门电影
 app.get('/api/trending/movies', requireAuth, async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    
     const response = await fetchWithProxy(
-      `https://api.tmdb.org/3/trending/movie/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
+      `https://api.tmdb.org/3/trending/movie/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN&page=${page}`
     );
     const data = await response.json();
     
-    const results = data.results.slice(0, 12).map(item => ({
+    const results = data.results.slice(0, 20).map(item => ({
       id: item.id,
       title: item.title,
       year: (item.release_date || '').split('-')[0],
@@ -690,7 +692,11 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
       }
     }
 
-    res.json({ results });
+    res.json({ 
+      results,
+      page,
+      total_pages: data.total_pages
+    });
   } catch (error) {
     console.error('获取热门电影错误:', error);
     res.status(500).json({ error: '获取失败' });
@@ -700,12 +706,14 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
 // 获取热门电视剧
 app.get('/api/trending/tv', requireAuth, async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    
     const response = await fetchWithProxy(
-      `https://api.tmdb.org/3/trending/tv/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
+      `https://api.tmdb.org/3/trending/tv/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN&page=${page}`
     );
     const data = await response.json();
     
-    const results = data.results.slice(0, 12).map(item => ({
+    const results = data.results.slice(0, 20).map(item => ({
       id: item.id,
       title: item.name,
       year: (item.first_air_date || '').split('-')[0],
@@ -752,7 +760,11 @@ app.get('/api/trending/tv', requireAuth, async (req, res) => {
       }
     }
 
-    res.json({ results });
+    res.json({ 
+      results,
+      page,
+      total_pages: data.total_pages
+    });
   } catch (error) {
     console.error('获取热门电视剧错误:', error);
     res.status(500).json({ error: '获取失败' });
@@ -891,14 +903,14 @@ app.get('/api/emby/trends', async (req, res) => {
       
       // 获取该天添加的电影
       const movieResponse = await fetch(
-        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Movie&Recursive=true&Fields=DateCreated&MinDateCreated=${date.toISOString()}&MaxDateCreated=${nextDate.toISOString()}`
+        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Movie&Recursive=true&MinDateCreated=${date.toISOString()}&MaxDateCreated=${nextDate.toISOString()}`
       );
       const movieResult = await movieResponse.json();
       movieData.push(movieResult.TotalRecordCount || 0);
       
-      // 获取该天添加的电视剧
+      // 获取该天添加的剧集
       const tvResponse = await fetch(
-        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Series&Recursive=true&Fields=DateCreated&MinDateCreated=${date.toISOString()}&MaxDateCreated=${nextDate.toISOString()}`
+        `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Episode&Recursive=true&MinDateCreated=${date.toISOString()}&MaxDateCreated=${nextDate.toISOString()}`
       );
       const tvResult = await tvResponse.json();
       tvData.push(tvResult.TotalRecordCount || 0);
