@@ -213,14 +213,16 @@ async function createMediaHelperSubscription(movieData) {
     popularity: movieData.popularity || 0,
     search_keywords: title,
     quality_preference: 'auto',
-    cron: process.env.MEDIAHELPER_CRON || defaults.cron || '0 19,21,23 * * *',
-    cloud_type: process.env.MEDIAHELPER_CLOUD_TYPE || defaults.cloud_type || 'drive115',
     custom_name: title,
     selected_seasons: [],
     user_custom_links: []
   };
 
-  // 使用默认配置中的值
+  // 使用 MediaHelper 的默认配置
+  // 云盘类型：必须明确指定，MediaHelper 的自动识别不准确
+  // 优先使用环境变量，如果没有配置则默认使用 drive115
+  subscriptionData.cloud_type = process.env.MEDIAHELPER_CLOUD_TYPE || 'drive115';
+
   if (defaults.default_account_id) {
     subscriptionData.account_identifier = defaults.default_account_id;
   }
@@ -230,15 +232,6 @@ async function createMediaHelperSubscription(movieData) {
     if (accountConfig && accountConfig.default_directory) {
       subscriptionData.target_directory = accountConfig.default_directory;
     }
-  }
-  
-  // 环境变量优先级更高
-  if (process.env.MEDIAHELPER_TARGET_DIRECTORY) {
-    subscriptionData.target_directory = process.env.MEDIAHELPER_TARGET_DIRECTORY;
-  }
-  
-  if (process.env.MEDIAHELPER_ACCOUNT_IDENTIFIER) {
-    subscriptionData.account_identifier = process.env.MEDIAHELPER_ACCOUNT_IDENTIFIER;
   }
 
   console.log('创建订阅请求:', {
