@@ -1,12 +1,31 @@
 require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// 配置代理（如果设置了 HTTP_PROXY 或 HTTPS_PROXY 环境变量）
+const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+
+if (proxyAgent) {
+  console.log(`✅ 使用代理: ${proxyUrl}`);
+} else {
+  console.log('ℹ️  未配置代理，直接连接');
+}
+
+// 创建带代理的 fetch 函数
+function fetchWithProxy(url, options = {}) {
+  if (proxyAgent && url.startsWith('https://api.themoviedb.org')) {
+    return fetch(url, { ...options, agent: proxyAgent });
+  }
+  return fetch(url, options);
+}
 
 app.use(express.json());
 app.use(cookieParser());
@@ -413,7 +432,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
   }
 
   try {
-    const response = await fetch(
+    const response = await fetchWithProxy(
       `https://api.themoviedb.org/3/search/multi?api_key=${process.env.TMDB_API_KEY}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`
     );
     const data = await response.json();
@@ -475,7 +494,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
 // 获取热门电影
 app.get('/api/trending/movies', requireAuth, async (req, res) => {
   try {
-    const response = await fetch(
+    const response = await fetchWithProxy(
       `https://api.themoviedb.org/3/trending/movie/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
     );
     const data = await response.json();
@@ -514,7 +533,7 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
 // 获取热门电视剧
 app.get('/api/trending/tv', requireAuth, async (req, res) => {
   try {
-    const response = await fetch(
+    const response = await fetchWithProxy(
       `https://api.themoviedb.org/3/trending/tv/week?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
     );
     const data = await response.json();
@@ -608,7 +627,7 @@ app.get('/api/emby/stats', async (req, res) => {
 app.get('/api/tmdb/status', requireAuth, async (req, res) => {
   try {
     const startTime = Date.now();
-    const response = await fetch(
+    const response = await fetchWithProxy(
       `https://api.themoviedb.org/3/configuration?api_key=${process.env.TMDB_API_KEY}`
     );
     const ping = Date.now() - startTime;
@@ -748,7 +767,7 @@ app.post('/api/request', requireAuth, async (req, res) => {
     // 如果没有提供完整的 movieData，从 TMDB 获取
     let fullMovieData = movieData;
     if (!fullMovieData || !fullMovieData.overview) {
-      const tmdbResponse = await fetch(
+      const tmdbResponse = await fetchWithProxy(
         `https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
       );
       if (tmdbResponse.ok) {
