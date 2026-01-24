@@ -213,8 +213,6 @@ async function createMediaHelperSubscription(movieData) {
     popularity: movieData.popularity || 0,
     search_keywords: title,
     quality_preference: 'auto',
-    cron: process.env.MEDIAHELPER_CRON || defaults.cron || '0 19,21,23 * * *',
-    cloud_type: process.env.MEDIAHELPER_CLOUD_TYPE || defaults.cloud_type || 'drive115',
     custom_name: title,
     selected_seasons: [],
     user_custom_links: []
