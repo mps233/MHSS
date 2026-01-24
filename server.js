@@ -125,6 +125,21 @@ async function getMediaHelperToken() {
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('MediaHelper 登录失败响应:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      
+      // 如果是 404，提示可能的 API 路径问题
+      if (response.status === 404) {
+        throw new Error(`MediaHelper API 路径错误 (404)。请检查：
+1. MediaHelper 版本是否支持 /api/v1/auth/login 路径
+2. 尝试访问 ${process.env.MEDIAHELPER_URL}/api/v1/auth/login 确认路径是否正确
+3. 查看 MediaHelper 文档确认正确的 API 路径
+响应内容: ${errorText}`);
+      }
+      
       throw new Error(`MediaHelper 登录失败: ${errorText}`);
     }
 
@@ -818,8 +833,40 @@ app.post('/api/request', requireAuth, async (req, res) => {
 async function startServer() {
   console.log('=== 开始启动服务器 ===');
   
+  // 测试 MediaHelper 连接
+  if (process.env.MEDIAHELPER_URL && process.env.MEDIAHELPER_USERNAME) {
+    console.log('\n📡 测试 MediaHelper 连接...');
+    console.log(`   URL: ${process.env.MEDIAHELPER_URL}`);
+    
+    try {
+      // 尝试访问根路径
+      const testResponse = await fetch(`${process.env.MEDIAHELPER_URL}/`, {
+        method: 'GET',
+        timeout: 5000
+      }).catch(e => null);
+      
+      if (testResponse) {
+        console.log(`   ✅ MediaHelper 服务可访问 (状态: ${testResponse.status})`);
+      } else {
+        console.log(`   ⚠️  MediaHelper 服务无法访问，请检查 URL 是否正确`);
+      }
+      
+      // 尝试登录测试
+      console.log('   🔐 测试登录...');
+      await getMediaHelperToken();
+      console.log('   ✅ MediaHelper 登录成功\n');
+    } catch (error) {
+      console.error('   ❌ MediaHelper 连接失败:', error.message);
+      console.error('   💡 提示：');
+      console.error('      1. 检查 MEDIAHELPER_URL 是否正确');
+      console.error('      2. 确认 MediaHelper 服务是否运行');
+      console.error('      3. 检查网络连接（如果使用 Docker，确保在同一网络）');
+      console.error('      4. 确认 API 路径是否为 /api/v1/auth/login\n');
+    }
+  }
+  
   app.listen(PORT, () => {
-    console.log(`\n🚀 服务器运行在 http://localhost:${PORT}`);
+    console.log(`🚀 服务器运行在 http://localhost:${PORT}`);
   });
 }
 
