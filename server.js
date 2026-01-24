@@ -892,11 +892,21 @@ app.get('/api/emby/trends', async (req, res) => {
     const movieData = [];
     const tvData = [];
     
-    // 获取最近7天的数据
+    // 获取最近7天的数据（按北京时间 UTC+8）
     for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      date.setHours(0, 0, 0, 0);
+      // 获取北京时间的日期
+      const now = new Date();
+      const beijingOffset = 8 * 60; // 北京时间 UTC+8
+      const localOffset = now.getTimezoneOffset(); // 本地时区偏移（分钟）
+      const offsetDiff = beijingOffset + localOffset; // 与北京时间的差异
+      
+      // 计算北京时间的今天 0 点
+      const beijingDate = new Date(now.getTime() + offsetDiff * 60 * 1000);
+      beijingDate.setHours(0, 0, 0, 0);
+      beijingDate.setDate(beijingDate.getDate() - i);
+      
+      // 转换回 UTC 时间用于 API 查询
+      const date = new Date(beijingDate.getTime() - offsetDiff * 60 * 1000);
       
       const nextDate = new Date(date);
       nextDate.setDate(nextDate.getDate() + 1);
