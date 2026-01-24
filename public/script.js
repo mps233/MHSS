@@ -52,8 +52,6 @@ const seriesCount = document.getElementById('seriesCount');
 const trendingMovies = document.getElementById('trendingMovies');
 const trendingTV = document.getElementById('trendingTV');
 const embyLink = document.getElementById('embyLink');
-const statusLink = document.getElementById('statusLink');
-const statusIcon = statusLink.querySelector('.nav-icon svg');
 const recentCarousel = document.getElementById('recentCarousel');
 
 let searchTimeout;
@@ -92,50 +90,199 @@ function updateRequestCount(count) {
   totalRequests.textContent = count;
 }
 
-// 加载 Emby 影片库统计
-async function loadEmbyStats() {
+// 检查服务状态
+async function checkServicesStatus() {
+  // 检查 Emby 状态
   try {
-    const response = await fetchWithAuth('/api/emby/stats');
-    const data = await response.json();
+    const startTime = performance.now();
+    const embyResponse = await fetchWithAuth('/api/emby/stats');
+    const embyData = await embyResponse.json();
+    const embyPing = Math.round(performance.now() - startTime);
+    const embyOnline = embyData.total !== null;
     
-    if (data.total !== null) {
-      movieCount.textContent = data.movies || '∞';
-      seriesCount.textContent = data.series || '∞';
-      statusIcon.style.color = '#10b981'; // 绿色表示在线
-      
-      // 设置 Emby 链接
-      if (data.embyUrl) {
-        embyLink.href = data.embyUrl;
+    // 更新桌面端状态点和延迟
+    const embyStatusDot = document.getElementById('embyStatusDot');
+    const embyPingEl = document.getElementById('embyPing');
+    if (embyStatusDot) {
+      embyStatusDot.className = `status-dot ${embyOnline ? 'online' : 'offline'}`;
+    }
+    if (embyPingEl) {
+      embyPingEl.textContent = embyOnline ? `${embyPing}ms` : '离线';
+    }
+    
+    // 更新移动端状态点和延迟
+    const mobileEmbyStatusDot = document.getElementById('mobileEmbyStatusDot');
+    const mobileEmbyPingEl = document.getElementById('mobileEmbyPing');
+    if (mobileEmbyStatusDot) {
+      mobileEmbyStatusDot.className = `status-dot ${embyOnline ? 'online' : 'offline'}`;
+    }
+    if (mobileEmbyPingEl) {
+      mobileEmbyPingEl.textContent = embyOnline ? `${embyPing}ms` : '离线';
+    }
+    
+    // 更新统计数据
+    if (embyOnline) {
+      movieCount.textContent = embyData.movies || '∞';
+      seriesCount.textContent = embyData.series || '∞';
+      if (embyData.embyUrl) {
+        embyLink.href = embyData.embyUrl;
       }
     } else {
       movieCount.textContent = '∞';
       seriesCount.textContent = '∞';
-      statusIcon.style.color = '#ef4444'; // 红色表示离线
     }
     
     // 更新今日请求数
-    if (data.todayRequests !== undefined) {
-      updateRequestCount(data.todayRequests);
+    if (embyData.todayRequests !== undefined) {
+      updateRequestCount(embyData.todayRequests);
     }
   } catch (error) {
-    console.error('加载 Emby 统计失败:', error);
-    movieCount.textContent = '∞';
-    seriesCount.textContent = '∞';
-    statusIcon.style.color = '#ef4444'; // 红色表示离线
+    console.error('检查 Emby 状态失败:', error);
+    const embyStatusDot = document.getElementById('embyStatusDot');
+    const mobileEmbyStatusDot = document.getElementById('mobileEmbyStatusDot');
+    const embyPingEl = document.getElementById('embyPing');
+    const mobileEmbyPingEl = document.getElementById('mobileEmbyPing');
+    if (embyStatusDot) embyStatusDot.className = 'status-dot offline';
+    if (mobileEmbyStatusDot) mobileEmbyStatusDot.className = 'status-dot offline';
+    if (embyPingEl) embyPingEl.textContent = '离线';
+    if (mobileEmbyPingEl) mobileEmbyPingEl.textContent = '离线';
+  }
+  
+  // 检查 MediaHelp 状态
+  try {
+    const startTime = performance.now();
+    const mediahelpResponse = await fetchWithAuth('/api/recent-requests');
+    const mediahelpData = await mediahelpResponse.json();
+    const mediahelpPing = Math.round(performance.now() - startTime);
+    const mediahelpOnline = mediahelpData.requests && mediahelpData.requests.length >= 0;
+    
+    // 更新桌面端状态点和延迟
+    const mediahelpStatusDot = document.getElementById('mediahelpStatusDot');
+    const mediahelpPingEl = document.getElementById('mediahelpPing');
+    if (mediahelpStatusDot) {
+      mediahelpStatusDot.className = `status-dot ${mediahelpOnline ? 'online' : 'offline'}`;
+    }
+    if (mediahelpPingEl) {
+      mediahelpPingEl.textContent = mediahelpOnline ? `${mediahelpPing}ms` : '离线';
+    }
+    
+    // 更新移动端状态点和延迟
+    const mobileMediahelpStatusDot = document.getElementById('mobileMediahelpStatusDot');
+    const mobileMediahelpPingEl = document.getElementById('mobileMediahelpPing');
+    if (mobileMediahelpStatusDot) {
+      mobileMediahelpStatusDot.className = `status-dot ${mediahelpOnline ? 'online' : 'offline'}`;
+    }
+    if (mobileMediahelpPingEl) {
+      mobileMediahelpPingEl.textContent = mediahelpOnline ? `${mediahelpPing}ms` : '离线';
+    }
+  } catch (error) {
+    console.error('检查 MediaHelp 状态失败:', error);
+    const mediahelpStatusDot = document.getElementById('mediahelpStatusDot');
+    const mobileMediahelpStatusDot = document.getElementById('mobileMediahelpStatusDot');
+    const mediahelpPingEl = document.getElementById('mediahelpPing');
+    const mobileMediahelpPingEl = document.getElementById('mobileMediahelpPing');
+    if (mediahelpStatusDot) mediahelpStatusDot.className = 'status-dot offline';
+    if (mobileMediahelpStatusDot) mobileMediahelpStatusDot.className = 'status-dot offline';
+    if (mediahelpPingEl) mediahelpPingEl.textContent = '离线';
+    if (mobileMediahelpPingEl) mobileMediahelpPingEl.textContent = '离线';
+  }
+  
+  // 检查 TMDB 状态
+  try {
+    const startTime = performance.now();
+    const tmdbResponse = await fetchWithAuth('/api/tmdb/status');
+    const tmdbData = await tmdbResponse.json();
+    const clientPing = Math.round(performance.now() - startTime);
+    const tmdbOnline = tmdbData.online;
+    const tmdbPing = tmdbData.ping || clientPing;
+    
+    // 更新桌面端状态点和延迟
+    const tmdbStatusDot = document.getElementById('tmdbStatusDot');
+    const tmdbPingEl = document.getElementById('tmdbPing');
+    if (tmdbStatusDot) {
+      tmdbStatusDot.className = `status-dot ${tmdbOnline ? 'online' : 'offline'}`;
+    }
+    if (tmdbPingEl) {
+      tmdbPingEl.textContent = tmdbOnline ? `${tmdbPing}ms` : '离线';
+    }
+    
+    // 更新移动端状态点和延迟
+    const mobileTmdbStatusDot = document.getElementById('mobileTmdbStatusDot');
+    const mobileTmdbPingEl = document.getElementById('mobileTmdbPing');
+    if (mobileTmdbStatusDot) {
+      mobileTmdbStatusDot.className = `status-dot ${tmdbOnline ? 'online' : 'offline'}`;
+    }
+    if (mobileTmdbPingEl) {
+      mobileTmdbPingEl.textContent = tmdbOnline ? `${tmdbPing}ms` : '离线';
+    }
+  } catch (error) {
+    console.error('检查 TMDB 状态失败:', error);
+    const tmdbStatusDot = document.getElementById('tmdbStatusDot');
+    const mobileTmdbStatusDot = document.getElementById('mobileTmdbStatusDot');
+    const tmdbPingEl = document.getElementById('tmdbPing');
+    const mobileTmdbPingEl = document.getElementById('mobileTmdbPing');
+    if (tmdbStatusDot) tmdbStatusDot.className = 'status-dot offline';
+    if (mobileTmdbStatusDot) mobileTmdbStatusDot.className = 'status-dot offline';
+    if (tmdbPingEl) tmdbPingEl.textContent = '离线';
+    if (mobileTmdbPingEl) mobileTmdbPingEl.textContent = '离线';
   }
 }
 
-// 状态链接点击事件
-statusLink.addEventListener('click', (e) => {
-  e.preventDefault();
-  loadEmbyStats();
-  const isOnline = statusIcon.style.color === 'rgb(16, 185, 129)';
-  alert(isOnline ? '✅ 服务正常运行' : '❌ Emby 服务离线');
-});
+// 加载 Emby 影片库统计
+async function loadEmbyStats() {
+  await checkServicesStatus();
+  // 更新 Footer 统计数据
+  if (typeof updateFooterStats === 'function') {
+    updateFooterStats();
+  }
+}
 
 loadEmbyStats();
 loadTrending(); // 页面加载时获取热门内容
 loadRecentRequests(); // 加载最近请求
+
+// 桌面端下拉菜单
+setTimeout(() => {
+  const statusLink = document.getElementById('statusLink');
+  
+  if (statusLink) {
+    const dropdownMenu = statusLink.querySelector('.dropdown-menu');
+    
+    // 点击切换下拉菜单
+    statusLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      statusLink.classList.toggle('active');
+    });
+    
+    // 阻止下拉菜单内部点击事件冒泡
+    if (dropdownMenu) {
+      dropdownMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
+    
+    // 点击外部关闭下拉菜单
+    document.addEventListener('click', (e) => {
+      if (!statusLink.contains(e.target)) {
+        statusLink.classList.remove('active');
+      }
+    });
+  }
+
+  // 移动端下拉菜单
+  const mobileStatusDropdown = document.getElementById('mobileStatusDropdown');
+  if (mobileStatusDropdown) {
+    const header = mobileStatusDropdown.querySelector('.mobile-menu-header');
+    if (header) {
+      header.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        mobileStatusDropdown.classList.toggle('active');
+      });
+    }
+  }
+}, 100);
 
 // 同步卡片高度
 function syncCardHeights() {
@@ -542,7 +689,10 @@ function displaySuggestions(results) {
       `;
     } else {
       buttonHtml = `
-        <button class="suggestion-btn" onclick="event.stopPropagation(); selectMovie(${item.id}, '${escapeHtml(item.title)}', '${item.mediaType}', this)" title="订阅">
+        <button class="suggestion-btn" 
+                data-movie='${JSON.stringify(item).replace(/'/g, "&apos;")}' 
+                onclick="event.stopPropagation(); selectMovieFromButton(this)" 
+                title="订阅">
           <span class="plus-icon"></span>
         </button>
       `;
@@ -564,7 +714,19 @@ function displaySuggestions(results) {
   }).join('');
 }
 
-async function selectMovie(id, title, mediaType, buttonElement) {
+async function selectMovieFromButton(buttonElement) {
+  try {
+    const movieData = JSON.parse(buttonElement.getAttribute('data-movie'));
+    // 使用 tmdbData 如果存在，否则使用原始数据
+    const fullData = movieData.tmdbData || movieData;
+    await selectMovie(movieData.id, movieData.title, movieData.mediaType, buttonElement, fullData);
+  } catch (error) {
+    console.error('解析电影数据失败:', error);
+    alert('订阅失败，请重试');
+  }
+}
+
+async function selectMovie(id, title, mediaType, buttonElement, movieData = null) {
   // 显示加载状态
   buttonElement.disabled = true;
   buttonElement.classList.add('loading');
@@ -575,7 +737,7 @@ async function selectMovie(id, title, mediaType, buttonElement) {
     const response = await fetchWithAuth('/api/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, title, mediaType }),
+      body: JSON.stringify({ id, title, mediaType, movieData }),
     });
 
     const data = await response.json();
@@ -824,7 +986,6 @@ window.addEventListener('appinstalled', () => {
 const mobileMenuBtn = document.getElementById('mobileMenuBtn');
 const mobileMenu = document.getElementById('mobileMenu');
 const mobileEmbyLink = document.getElementById('mobileEmbyLink');
-const mobileStatusLink = document.getElementById('mobileStatusLink');
 
 if (mobileMenuBtn && mobileMenu) {
   // 切换菜单显示
@@ -845,19 +1006,8 @@ if (mobileMenuBtn && mobileMenu) {
     mobileEmbyLink.href = embyLink.href;
   }
 
-  // 移动端状态链接点击事件
-  if (mobileStatusLink) {
-    mobileStatusLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      loadEmbyStats();
-      const isOnline = statusIcon.style.color === 'rgb(16, 185, 129)';
-      alert(isOnline ? '✅ 服务正常运行' : '❌ Emby 服务离线');
-      mobileMenu.classList.remove('show');
-    });
-  }
-
   // 点击菜单项后关闭菜单
-  const menuItems = mobileMenu.querySelectorAll('.mobile-menu-item');
+  const menuItems = mobileMenu.querySelectorAll('.mobile-menu-item:not(.mobile-menu-dropdown)');
   menuItems.forEach(item => {
     item.addEventListener('click', () => {
       setTimeout(() => {
@@ -880,13 +1030,21 @@ if (footerEmbyLink && embyLink) {
   footerEmbyLink.href = embyLink.href;
 }
 
-// Footer 状态链接点击事件
+// Footer 状态链接点击事件 - 显示综合状态
 if (footerStatusLink) {
-  footerStatusLink.addEventListener('click', (e) => {
+  footerStatusLink.addEventListener('click', async (e) => {
     e.preventDefault();
-    loadEmbyStats();
-    const isOnline = statusIcon.style.color === 'rgb(16, 185, 129)';
-    alert(isOnline ? '✅ 服务正常运行' : '❌ Emby 服务离线');
+    await checkServicesStatus();
+    
+    const embyDot = document.getElementById('embyStatusDot');
+    const mediahelpDot = document.getElementById('mediahelpStatusDot');
+    const embyOnline = embyDot && embyDot.classList.contains('online');
+    const mediahelpOnline = mediahelpDot && mediahelpDot.classList.contains('online');
+    
+    let message = '服务状态：\n\n';
+    message += embyOnline ? '✅ Emby 服务正常运行\n' : '❌ Emby 服务离线\n';
+    message += mediahelpOnline ? '✅ MediaHelp 服务正常运行' : '❌ MediaHelp 服务离线';
+    alert(message);
   });
 }
 
@@ -902,13 +1060,6 @@ function updateFooterStats() {
     footerSeriesCount.textContent = seriesCount.textContent;
   }
 }
-
-// 在加载统计数据后更新 Footer
-const originalLoadEmbyStats = loadEmbyStats;
-loadEmbyStats = async function() {
-  await originalLoadEmbyStats();
-  updateFooterStats();
-};
 
 // 登出功能
 const logoutBtn = document.getElementById('logoutBtn');

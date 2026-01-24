@@ -136,6 +136,7 @@ body {
   transition: background 0.3s, border-color 0.3s;
   will-change: transform;
   transform: translateZ(0);
+  overflow: visible;
 }
 
 .nav-container {
@@ -146,6 +147,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  overflow: visible;
 }
 
 .nav-left {
@@ -190,6 +192,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  overflow: visible;
 }
 
 .nav-link {
@@ -203,6 +206,7 @@ body {
   transition: all 0.2s;
   font-size: 0.9375rem;
   font-weight: 500;
+  position: relative;
 }
 
 .nav-link:hover {
@@ -216,6 +220,80 @@ body {
 
 [data-theme="light"] .nav-link:hover {
   color: var(--purple-600);
+}
+
+/* 下拉菜单样式 */
+.nav-link-dropdown {
+  cursor: pointer;
+}
+
+.dropdown-arrow {
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s;
+}
+
+.nav-link-dropdown.active .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-xl);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.2s;
+  z-index: 10000;
+  overflow: hidden;
+}
+
+.nav-link-dropdown.active .dropdown-menu {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: translateY(0) !important;
+  display: block !important;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  cursor: default;
+}
+
+.status-ping {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gray-500);
+  transition: background 0.3s;
+}
+
+.status-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.status-dot.offline {
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
 }
 
 .theme-switcher {
@@ -299,6 +377,60 @@ body {
 
 .mobile-menu-item svg {
   flex-shrink: 0;
+}
+
+/* 移动端下拉菜单 */
+.mobile-menu-dropdown {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+}
+
+.mobile-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mobile-menu-header:hover {
+  background: rgba(168, 85, 247, 0.05);
+}
+
+.dropdown-arrow-mobile {
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+
+.mobile-menu-dropdown.active .dropdown-arrow-mobile {
+  transform: rotate(180deg);
+}
+
+.mobile-submenu {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+  background: rgba(168, 85, 247, 0.05);
+}
+
+.mobile-menu-dropdown.active .mobile-submenu {
+  max-height: 200px;
+}
+
+.mobile-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem 0.75rem 3rem;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  cursor: default;
+}
+
+.mobile-submenu-item .status-ping {
+  margin-left: auto;
 }
 
 .theme-btn {

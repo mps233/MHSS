@@ -4,9 +4,6 @@ const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
-const { TelegramClient } = require('telegram');
-const { StringSession } = require('telegram/sessions');
-const input = require('input');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -42,6 +39,200 @@ function saveSessions() {
 }
 
 const sessions = loadSessions(); // 存储用户session
+
+// MediaHelp Token 管理
+let mediaHelpToken = null;
+let mediaHelpTokenExpiry = 0;
+let mediaHelpDefaults = null; // 缓存默认配置
+
+// 获取 MediaHelp 默认配置
+async function getMediaHelpDefaults() {
+  // 如果已经缓存了，直接返回
+  if (mediaHelpDefaults) {
+    return mediaHelpDefaults;
+  }
+
+  const token = await getMediaHelpToken();
+  
+  try {
+    const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/subscription/config/cloud-defaults`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('获取默认配置失败');
+    }
+
+    const data = await response.json();
+    console.log('MediaHelp 默认配置:', JSON.stringify(data, null, 2));
+    
+    // 缓存默认配置
+    mediaHelpDefaults = data.data || data;
+    return mediaHelpDefaults;
+  } catch (error) {
+    console.error('获取 MediaHelp 默认配置失败:', error);
+    // 返回空对象，让后续代码使用环境变量
+    return {};
+  }
+}
+
+// 登录 MediaHelp 获取 Token
+async function getMediaHelpToken() {
+  // 如果 token 还有效，直接返回
+  if (mediaHelpToken && Date.now() < mediaHelpTokenExpiry) {
+    return mediaHelpToken;
+  }
+
+  if (!process.env.MEDIAHELP_URL || !process.env.MEDIAHELP_USERNAME || !process.env.MEDIAHELP_PASSWORD) {
+    throw new Error('MediaHelp 未配置');
+  }
+
+  try {
+    console.log(`正在登录 MediaHelp: ${process.env.MEDIAHELP_URL}`);
+    const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        username: process.env.MEDIAHELP_USERNAME,
+        password: process.env.MEDIAHELP_PASSWORD
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`MediaHelp 登录失败: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('MediaHelp 登录响应:', JSON.stringify(data, null, 2));
+    
+    // 尝试不同的 token 字段名
+    mediaHelpToken = data.data?.token || data.token || data.access_token || data.data?.access_token;
+    
+    if (!mediaHelpToken) {
+      throw new Error('无法从响应中获取 token: ' + JSON.stringify(data));
+    }
+    
+    // Token 有效期设为 23 小时（假设 24 小时有效期）
+    mediaHelpTokenExpiry = Date.now() + 23 * 60 * 60 * 1000;
+    
+    console.log('✅ MediaHelp 登录成功，Token:', mediaHelpToken.substring(0, 20) + '...');
+    return mediaHelpToken;
+  } catch (error) {
+    console.error('MediaHelp 登录错误:', error);
+    throw error;
+  }
+}
+
+// 获取 MediaHelp 订阅列表
+async function getMediaHelpSubscriptions() {
+  try {
+    const token = await getMediaHelpToken();
+    
+    const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/subscription/list`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('获取订阅列表失败');
+    }
+
+    const data = await response.json();
+    console.log('MediaHelp 订阅列表:', JSON.stringify(data, null, 2));
+    
+    // 返回订阅列表
+    return data.data || data;
+  } catch (error) {
+    console.error('获取 MediaHelp 订阅列表失败:', error);
+    return [];
+  }
+}
+async function createMediaHelpSubscription(movieData) {
+  const token = await getMediaHelpToken();
+  const defaults = await getMediaHelpDefaults();
+  
+  // 从 movieData 中提取数据，兼容不同的字段名
+  const title = movieData.title || movieData.name || '';
+  const originalTitle = movieData.original_title || movieData.original_name || title;
+  
+  // 使用默认配置或环境变量
+  const subscriptionData = {
+    tmdb_id: movieData.id,
+    title: title,
+    original_title: originalTitle,
+    media_type: movieData.media_type || movieData.mediaType,
+    release_date: movieData.release_date || movieData.first_air_date || '',
+    overview: movieData.overview || '',
+    poster_path: movieData.poster_path ? `https://image.tmdb.org/t/p/w500${movieData.poster_path}` : '',
+    backdrop_path: movieData.backdrop_path ? `https://image.tmdb.org/t/p/w1280${movieData.backdrop_path}` : '',
+    vote_average: movieData.vote_average || 0,
+    popularity: movieData.popularity || 0,
+    search_keywords: title,
+    quality_preference: 'auto',
+    cron: process.env.MEDIAHELP_CRON || defaults.cron || '0 19,21,23 * * *',
+    cloud_type: process.env.MEDIAHELP_CLOUD_TYPE || defaults.cloud_type || 'drive115',
+    custom_name: title,
+    selected_seasons: [],
+    user_custom_links: []
+  };
+
+  // 使用默认配置中的值
+  if (defaults.default_account_id) {
+    subscriptionData.account_identifier = defaults.default_account_id;
+  }
+  
+  if (defaults.account_configs && defaults.default_account_id) {
+    const accountConfig = defaults.account_configs[defaults.default_account_id];
+    if (accountConfig && accountConfig.default_directory) {
+      subscriptionData.target_directory = accountConfig.default_directory;
+    }
+  }
+  
+  // 环境变量优先级更高
+  if (process.env.MEDIAHELP_TARGET_DIRECTORY) {
+    subscriptionData.target_directory = process.env.MEDIAHELP_TARGET_DIRECTORY;
+  }
+  
+  if (process.env.MEDIAHELP_ACCOUNT_IDENTIFIER) {
+    subscriptionData.account_identifier = process.env.MEDIAHELP_ACCOUNT_IDENTIFIER;
+  }
+
+  console.log('创建订阅请求:', {
+    url: `${process.env.MEDIAHELP_URL}/api/v1/subscription/create`,
+    token: token.substring(0, 20) + '...',
+    data: subscriptionData
+  });
+
+  const response = await fetch(`${process.env.MEDIAHELP_URL}/api/v1/subscription/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(subscriptionData)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('创建订阅失败响应:', errorText);
+    throw new Error(`创建订阅失败: ${errorText}`);
+  }
+
+  const result = await response.json();
+  console.log('创建订阅成功:', result);
+  return result;
+}
 
 // 定期清理过期session并保存
 setInterval(() => {
@@ -106,6 +297,14 @@ function requireAuthPage(req, res, next) {
 // 应用页面访问控制
 app.use(requireAuthPage);
 
+// 禁用缓存
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 app.use(express.static('public'));
 
 // 路由：登录页面
@@ -117,22 +316,6 @@ app.get('/login', (req, res) => {
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-
-// 已请求影片的存储文件
-const REQUESTED_FILE = path.join(__dirname, 'requested-movies.json');
-
-// 读取已请求的影片列表
-function getRequestedMovies() {
-  try {
-    if (fs.existsSync(REQUESTED_FILE)) {
-      const data = fs.readFileSync(REQUESTED_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('读取已请求列表错误:', error);
-  }
-  return [];
-}
 
 // Emby登录API
 app.post('/api/login', async (req, res) => {
@@ -171,7 +354,7 @@ app.post('/api/login', async (req, res) => {
     
     // 生成session token
     const token = Math.random().toString(36).substring(2) + Date.now().toString(36);
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24小时
+    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7天
     
     sessions.set(token, {
       user: {
@@ -187,7 +370,7 @@ app.post('/api/login', async (req, res) => {
     // 设置cookie
     res.cookie('token', token, {
       httpOnly: false, // 允许JavaScript访问，因为前端需要用到
-      maxAge: 24 * 60 * 60 * 1000, // 24小时
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7天
       sameSite: 'lax'
     });
 
@@ -221,100 +404,6 @@ app.get('/api/verify', requireAuth, (req, res) => {
   res.json({ success: true, user: req.user });
 });
 
-// 获取今日请求数量
-function getTodayRequestCount() {
-  const requested = getRequestedMovies();
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  return requested.filter(item => {
-    const requestDate = new Date(item.requestedAt).toISOString().split('T')[0];
-    return requestDate === today;
-  }).length;
-}
-
-// 保存已请求的影片列表
-function saveRequestedMovies(movies) {
-  try {
-    fs.writeFileSync(REQUESTED_FILE, JSON.stringify(movies, null, 2), 'utf8');
-  } catch (error) {
-    console.error('保存已请求列表错误:', error);
-  }
-}
-
-// 添加到已请求列表
-function addRequestedMovie(id, title, mediaType) {
-  const requested = getRequestedMovies();
-  const key = `${mediaType}_${id}`;
-  if (!requested.some(item => item.key === key)) {
-    requested.push({
-      key,
-      id,
-      title,
-      mediaType,
-      requestedAt: new Date().toISOString()
-    });
-    saveRequestedMovies(requested);
-  }
-}
-
-// 检查是否已请求
-function isMovieRequested(id, mediaType) {
-  const requested = getRequestedMovies();
-  const key = `${mediaType}_${id}`;
-  return requested.some(item => item.key === key);
-}
-
-// Telegram Client 配置
-const apiId = parseInt(process.env.TG_API_ID);
-const apiHash = process.env.TG_API_HASH;
-const stringSession = new StringSession(process.env.TG_SESSION || '');
-
-let client = null;
-
-// 初始化 Telegram Client
-async function initTelegramClient() {
-  console.log('开始初始化 Telegram 客户端...');
-  console.log('API ID:', apiId);
-  console.log('Session 长度:', stringSession.save().length);
-  
-  try {
-    client = new TelegramClient(stringSession, apiId, apiHash, {
-      connectionRetries: 5,
-    });
-
-    console.log('正在连接 Telegram...');
-    
-    await client.start({
-      phoneNumber: async () => {
-        console.log('需要手机号');
-        return process.env.TG_PHONE_NUMBER;
-      },
-      password: async () => {
-        console.log('需要密码');
-        return await input.text('请输入两步验证密码（如果有）: ');
-      },
-      phoneCode: async () => {
-        console.log('需要验证码');
-        return await input.text('请输入 Telegram 发送的验证码: ');
-      },
-      onError: (err) => {
-        console.log('Telegram 错误:', err);
-      },
-    });
-
-    console.log('✅ Telegram 客户端已连接');
-    const session = client.session.save();
-    if (session !== process.env.TG_SESSION) {
-      console.log('新的 Session String:', session);
-      console.log('请将上面的 Session String 保存到 .env 文件的 TG_SESSION 变量中');
-    }
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Telegram 客户端连接失败:', error);
-    return false;
-  }
-}
-
 // 搜索 TMDB
 app.get('/api/search', requireAuth, async (req, res) => {
   const { query } = req.query;
@@ -341,7 +430,23 @@ app.get('/api/search', requireAuth, async (req, res) => {
         type: item.media_type === 'movie' ? '电影' : '剧集',
         poster: item.poster_path ? `https://image.tmdb.org/t/p/w200${item.poster_path}` : null,
         mediaType: item.media_type,
-        requested: isMovieRequested(item.id, item.media_type)
+        requested: false, // 不再检查本地请求状态
+        // 添加完整的 TMDB 数据供 MediaHelp 使用
+        tmdbData: {
+          id: item.id,
+          title: item.title,
+          name: item.name,
+          original_title: item.original_title,
+          original_name: item.original_name,
+          media_type: item.media_type,
+          release_date: item.release_date,
+          first_air_date: item.first_air_date,
+          overview: item.overview,
+          poster_path: item.poster_path,
+          backdrop_path: item.backdrop_path,
+          vote_average: item.vote_average,
+          popularity: item.popularity
+        }
       }));
 
     // 检查 Emby 库中是否已有这些影片
@@ -381,7 +486,7 @@ app.get('/api/trending/movies', requireAuth, async (req, res) => {
       year: (item.release_date || '').split('-')[0],
       rating: item.vote_average ? item.vote_average.toFixed(1) : 'N/A',
       poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
-      requested: isMovieRequested(item.id, 'movie')
+      requested: false // 不再检查本地请求状态
     }));
 
     // 检查 Emby 库中是否已有这些电影
@@ -420,7 +525,7 @@ app.get('/api/trending/tv', requireAuth, async (req, res) => {
       year: (item.first_air_date || '').split('-')[0],
       rating: item.vote_average ? item.vote_average.toFixed(1) : 'N/A',
       poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
-      requested: isMovieRequested(item.id, 'tv')
+      requested: false // 不再检查本地请求状态
     }));
 
     // 检查 Emby 库中是否已有这些电视剧
@@ -447,13 +552,28 @@ app.get('/api/trending/tv', requireAuth, async (req, res) => {
 
 // 获取 Emby 影片库统计
 app.get('/api/emby/stats', async (req, res) => {
-  const todayCount = getTodayRequestCount();
-  
+  // 计算今日请求数（从 MediaHelp 订阅列表）
+  let todayRequests = 0;
+  try {
+    if (process.env.MEDIAHELP_URL && process.env.MEDIAHELP_USERNAME) {
+      const data = await getMediaHelpSubscriptions();
+      if (data && data.subscriptions) {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        todayRequests = data.subscriptions.filter(sub => {
+          const createdDate = (sub.created_at || '').split('T')[0];
+          return createdDate === today;
+        }).length;
+      }
+    }
+  } catch (error) {
+    console.error('统计今日请求数失败:', error);
+  }
+
   if (!process.env.EMBY_URL || !process.env.EMBY_API_KEY) {
     return res.json({ 
       total: null, 
       embyUrl: null,
-      todayRequests: todayCount
+      todayRequests: todayRequests
     });
   }
 
@@ -472,14 +592,37 @@ app.get('/api/emby/stats', async (req, res) => {
       series: data.SeriesCount || 0,
       episodes: data.EpisodeCount || 0,
       embyUrl: process.env.EMBY_URL,
-      todayRequests: todayCount
+      todayRequests: todayRequests
     });
   } catch (error) {
     console.error('获取 Emby 统计错误:', error);
     res.json({ 
       total: null, 
       embyUrl: null,
-      todayRequests: todayCount
+      todayRequests: todayRequests
+    });
+  }
+});
+
+// 检查 TMDB 状态
+app.get('/api/tmdb/status', requireAuth, async (req, res) => {
+  try {
+    const startTime = Date.now();
+    const response = await fetch(
+      `https://api.themoviedb.org/3/configuration?api_key=${process.env.TMDB_API_KEY}`
+    );
+    const ping = Date.now() - startTime;
+    const online = response.ok;
+    
+    res.json({ 
+      online,
+      ping
+    });
+  } catch (error) {
+    console.error('检查 TMDB 状态错误:', error);
+    res.json({ 
+      online: false,
+      ping: 0
     });
   }
 });
@@ -537,141 +680,127 @@ app.get('/api/emby/trends', async (req, res) => {
 // 获取最近请求
 app.get('/api/recent-requests', async (req, res) => {
   try {
-    const requested = getRequestedMovies();
+    // 从 MediaHelp 获取订阅列表
+    if (!process.env.MEDIAHELP_URL || !process.env.MEDIAHELP_USERNAME) {
+      return res.json({ requests: [] });
+    }
+
+    const data = await getMediaHelpSubscriptions();
+    console.log('MediaHelp 订阅数据:', JSON.stringify(data, null, 2));
     
-    // 按时间倒序排序，最新的在前面
-    const sortedRequests = requested.sort((a, b) => {
-      return new Date(b.requestedAt) - new Date(a.requestedAt);
-    });
-    
-    // 获取每个请求的海报信息，增加到30条
-    const requestsWithPosters = await Promise.all(
-      sortedRequests.slice(0, 30).map(async (item) => {
-        try {
-          const response = await fetch(
-            `https://api.themoviedb.org/3/${item.mediaType}/${item.id}?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
-          );
-          const data = await response.json();
-          
-          return {
-            ...item,
-            poster: data.poster_path ? `https://image.tmdb.org/t/p/w200${data.poster_path}` : null
-          };
-        } catch (error) {
-          return item;
+    if (data && data.subscriptions && data.subscriptions.length > 0) {
+      // 转换 MediaHelp 订阅数据为前端需要的格式
+      const requestsWithPosters = data.subscriptions.slice(0, 30).map(sub => {
+        const info = sub.subscription_info || {};
+        const params = sub.params || {};
+        
+        // 处理海报路径 - 可能是完整 URL 或相对路径
+        let posterUrl = info.poster_path || params.poster_path || null;
+        if (posterUrl && !posterUrl.startsWith('http')) {
+          // 如果是相对路径，添加 TMDB 前缀
+          posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
         }
-      })
-    );
+        
+        // 处理时间 - MediaHelp 返回的时间是 UTC 时间但没有 Z 后缀
+        let requestedAt = sub.created_at || sub.updated_at;
+        if (requestedAt && !requestedAt.endsWith('Z')) {
+          // MediaHelp 返回的时间格式: "2026-01-24T05:35:45.153747"
+          // 这是 UTC 时间，添加 Z 后缀让前端正确解析
+          requestedAt = requestedAt + 'Z';
+        }
+        
+        return {
+          id: info.tmdb_id || params.tmdb_id,
+          title: info.title || params.title || params.custom_name || sub.name,
+          mediaType: info.media_type || params.media_type,
+          requestedAt: requestedAt,
+          poster: posterUrl
+        };
+      });
+      
+      console.log('转换后的订阅数据:', JSON.stringify(requestsWithPosters.slice(0, 3), null, 2));
+      return res.json({ requests: requestsWithPosters });
+    }
     
-    res.json({ requests: requestsWithPosters });
+    res.json({ requests: [] });
   } catch (error) {
     console.error('获取最近请求错误:', error);
     res.json({ requests: [] });
   }
 });
 
-// 发送请求到 Telegram 群组或机器人（使用用户账号）
+// 发送请求（使用 MediaHelp）
 app.post('/api/request', requireAuth, async (req, res) => {
-  const { id, title, mediaType } = req.body;
+  const { id, title, mediaType, movieData } = req.body;
   
   if (!title || !id || !mediaType) {
     return res.status(400).json({ error: '请提供完整的影片信息' });
   }
 
-  if (!client || !client.connected) {
-    return res.status(500).json({ error: 'Telegram 客户端未连接，请重启服务器' });
-  }
-
-  // 获取目标：优先使用群组，如果没有则使用机器人
-  const target = process.env.TG_GROUP_ID || process.env.TG_BOT_USERNAME;
-  
-  if (!target) {
-    return res.status(500).json({ error: '未配置 Telegram 群组或机器人' });
+  // 检查 MediaHelp 配置
+  if (!process.env.MEDIAHELP_URL || !process.env.MEDIAHELP_USERNAME) {
+    return res.status(500).json({ error: 'MediaHelp 未配置，请联系管理员' });
   }
 
   try {
-    const message = `/s ${title}`;
+    console.log(`使用 MediaHelp 创建订阅: ${title}`);
     
-    // 发送消息
-    await client.sendMessage(target, { message });
-    console.log(`已发送消息到 ${target}: ${message}`);
-    
-    // 等待机器人回复（带按钮的消息）
-    await new Promise(resolve => setTimeout(resolve, 5000)); // 等待5秒
-    
-    // 获取最近的消息
-    const messages = await client.getMessages(target, { limit: 5 });
-    
-    // 查找带按钮的消息
-    for (const msg of messages) {
-      // 检查消息内容是否包含错误信息
-      if (msg.message && (msg.message.includes('❌') || msg.message.includes('搜索失败') || msg.message.includes('未找到'))) {
-        console.log('机器人返回错误:', msg.message);
-        return res.status(400).json({ 
-          error: '搜索失败，请检查影片名称是否正确' 
-        });
-      }
-      
-      if (msg.replyMarkup && msg.replyMarkup.rows && msg.replyMarkup.rows.length > 0) {
-        const firstButton = msg.replyMarkup.rows[0].buttons[0];
-        
-        if (firstButton) {
-          console.log(`找到按钮: ${firstButton.text}`);
-          
-          try {
-            // 点击第一个按钮
-            await msg.click(0); // 点击第一行第一个按钮
-            console.log('已自动点击确认按钮');
-            
-            // 添加到已请求列表
-            addRequestedMovie(id, title, mediaType);
-            
-            return res.json({ 
-              success: true, 
-              message: `请求已发送并确认订阅《${title}》` 
-            });
-          } catch (clickError) {
-            console.error('点击按钮失败:', clickError);
-            return res.status(400).json({ 
-              error: '订阅失败，按钮无效' 
-            });
-          }
-        }
+    // 如果没有提供完整的 movieData，从 TMDB 获取
+    let fullMovieData = movieData;
+    if (!fullMovieData || !fullMovieData.overview) {
+      const tmdbResponse = await fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
+      );
+      if (tmdbResponse.ok) {
+        fullMovieData = await tmdbResponse.json();
+        fullMovieData.media_type = mediaType;
       }
     }
     
-    // 如果没找到按钮，返回错误
-    return res.status(400).json({ 
-      error: '未找到可订阅的内容，请检查影片名称' 
+    await createMediaHelpSubscription(fullMovieData || {
+      id,
+      title,
+      media_type: mediaType,
+      overview: '',
+      poster_path: '',
+      backdrop_path: '',
+      vote_average: 0,
+      popularity: 0
     });
     
+    return res.json({ 
+      success: true, 
+      message: `已成功订阅《${title}》`,
+      method: 'mediahelp'
+    });
   } catch (error) {
-    console.error('Telegram 发送错误:', error);
-    res.status(500).json({ error: '发送失败: ' + error.message });
+    console.error('MediaHelp 订阅失败:', error);
+    
+    // 如果是"已存在订阅"的错误，直接返回成功
+    if (error.message && error.message.includes('已存在')) {
+      return res.json({ 
+        success: true, 
+        message: `《${title}》已在订阅列表中`,
+        method: 'mediahelp'
+      });
+    }
+    
+    return res.status(500).json({ error: '订阅失败: ' + error.message });
   }
 });
 
 // 启动服务器
+// 启动服务器
 async function startServer() {
   console.log('=== 开始启动服务器 ===');
   
-  // 先启动 HTTP 服务器
   app.listen(PORT, () => {
     console.log(`\n🚀 服务器运行在 http://localhost:${PORT}`);
-  });
-
-  // 然后在后台初始化 Telegram 客户端
-  console.log('正在后台连接 Telegram...');
-  initTelegramClient().then(connected => {
-    if (!connected) {
-      console.error('⚠️  Telegram 客户端连接失败，但服务器继续运行');
-    }
-  }).catch(err => {
-    console.error('⚠️  Telegram 初始化错误:', err.message);
   });
 }
 
 console.log('=== 脚本开始执行 ===');
 startServer();
+
  
  

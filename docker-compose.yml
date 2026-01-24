@@ -10,14 +10,9 @@ services:
     environment:
       - NODE_ENV=production
       - TMDB_API_KEY=你的TMDB_API_KEY
-      - TG_API_ID=你的API_ID
-      - TG_API_HASH=你的API_HASH
-      - TG_PHONE_NUMBER=你的手机号
-      - TG_GROUP_ID=目标群组ID
-      - TG_BOT_USERNAME=@机器人用户名
-      - TG_SESSION=你的session_string
       - EMBY_URL=你的Emby服务器地址
       - EMBY_API_KEY=你的Emby_API_KEY
+      - MEDIAHELP_URL=你的MediaHelp服务器地址
+      - MEDIAHELP_USERNAME=你的MediaHelp用户名
+      - MEDIAHELP_PASSWORD=你的MediaHelp密码
       - PORT=3000
-    volumes:
-      - ./requested-movies.json:/app/requested-movies.json

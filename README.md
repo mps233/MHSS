@@ -1,6 +1,6 @@
-# Self-service subscription fro Mediahelp
+# MHSS - MediaHelp 自助订阅系统
 
-一个基于Mediahelp的自助求片网站，用户可以搜索影片并自动发送请求到MH机器人或者绑定了MH机器人的Telegram 群组。
+一个基于 MediaHelp 的自助求片网站，用户可以搜索影片并自动在 MediaHelp 上创建订阅。
 
 ## 项目截图
 
@@ -11,16 +11,16 @@
 ### 移动端
 <img src="image/3.png" width="30%" /> <img src="image/4.png" width="30%" />
 
-
-
 ## 功能特点
 
 - 🔍 集成 TMDB API，实时搜索影视剧
-- 🤖 使用 Telegram 用户账号自动发送请求并点击确认
+- 🤖 自动在 MediaHelp 上创建订阅
+- 🔐 Emby 账号登录认证
 - 📊 显示热门电影和电视剧
 - 📱 完全响应式设计，支持移动端
 - 💾 记录已请求的影片，避免重复请求
-- 📈 支持 Emby 库统计和入库趋势展示
+- 📈 支持 Emby 库统计展示
+- 🎨 深色/浅色主题切换
 
 ## 快速开始
 
@@ -35,42 +35,23 @@ npm install
 复制 `.env.example` 为 `.env`，并填写以下信息：
 
 ```env
-# TMDB API Key（必需）
+# TMDB API Key（必需）- 从 https://www.themoviedb.org/settings/api 获取
 TMDB_API_KEY=你的TMDB_API_KEY
 
-# Telegram 配置（必需）
-TG_API_ID=你的API_ID
-TG_API_HASH=你的API_HASH
-TG_PHONE_NUMBER=你的手机号（如+8613800138000）
-
-TG_GROUP_ID=你的mh机器人所在的目标群组ID（如@groupname或-123456789）
-# 或者使用 TG_BOT_USERNAME=@你的mh机器人用户名（二选一）
-
-TG_SESSION=你的session_string（首次启动后获取）
-
-# Emby 配置（可选）
+# Emby 配置（必需）- 用于登录认证
 EMBY_URL=你的Emby服务器地址
 EMBY_API_KEY=你的Emby_API_KEY
+
+# MediaHelp 配置（必需）- 用于创建订阅
+MEDIAHELP_URL=你的MediaHelp地址
+MEDIAHELP_USERNAME=你的MediaHelp用户名
+MEDIAHELP_PASSWORD=你的MediaHelp密码
 
 # 服务器端口（可选）
 PORT=3000
 ```
 
-### 3. 首次启动
-
-```bash
-npm start
-```
-
-首次启动时：
-- 会要求输入 Telegram 验证码
-- 如果有两步验证，还需要输入密码
-- 登录成功后会显示 Session String
-- 将 Session String 复制到 `.env` 文件的 `TG_SESSION` 变量中
-
-### 4. 后续启动
-
-配置好 `TG_SESSION` 后，直接运行：
+### 3. 启动服务
 
 ```bash
 npm start
@@ -78,117 +59,102 @@ npm start
 
 访问 http://localhost:3000
 
-## Docker 部署
+### 4. 开发模式
 
-### 重要：首次部署需要先获取 TG_SESSION
+支持热重载：
 
-由于Telegram需要验证码登录，首次部署前需要先获取SESSION：
-
-**方法1：本地获取（第一次运行获取session）**
 ```bash
-# 克隆仓库
-git clone https://github.com/mps233/MHSS.git
-cd MHSS
-
-# 安装依赖
-npm install
-
-# 配置.env文件（不需要填TG_SESSION）
-cp .env.example .env
-# 编辑.env，填写TMDB_API_KEY、TG_API_ID等
-
-# 启动获取SESSION
-npm start
-# 按提示输入验证码，成功后会显示SESSION字符串
-# 复制这个SESSION字符串
+npm run dev
 ```
 
-获取到SESSION后，填入docker-compose.yml的TG_SESSION字段，然后正式部署。
+访问 http://localhost:3001
+
+## Docker 部署
 
 ### 使用 Docker Compose（推荐）
 
-1. **下载 docker-compose.yml**
-   ```bash
-   wget https://raw.githubusercontent.com/mps233/MHSS/main/docker-compose.yml
-   ```
+1. 克隆仓库：
+```bash
+git clone https://github.com/mps233/MHSS.git
+cd MHSS
+```
 
-2. **编辑 docker-compose.yml，填写环境变量**
-   ```yaml
-   environment:
-     - TMDB_API_KEY=你的TMDB_API_KEY
-     - TG_API_ID=你的API_ID
-     - TG_API_HASH=你的API_HASH
-     - TG_PHONE_NUMBER=你的手机号（如+8613800138000）
-     - TG_GROUP_ID=目标群组ID（如-123456789）或 TG_BOT_USERNAME=@你的mh机器人用户名（二选一）
-     - TG_SESSION=你的session_string(第一步的时候获取到的Session String)
-     - EMBY_URL=你的Emby服务器地址（可选）
-     - EMBY_API_KEY=你的Emby_API_KEY（可选）
-   ```
+2. 编辑 `docker-compose.yml`，填写环境变量：
+```yaml
+environment:
+  - TMDB_API_KEY=你的TMDB_API_KEY
+  - EMBY_URL=你的Emby服务器地址
+  - EMBY_API_KEY=你的Emby_API_KEY
+  - MEDIAHELP_URL=你的MediaHelp地址
+  - MEDIAHELP_USERNAME=你的MediaHelp用户名
+  - MEDIAHELP_PASSWORD=你的MediaHelp密码
+  - PORT=3000
+```
 
-3. **启动容器**
-   ```bash
-   docker-compose up -d
-   ```
+3. 启动容器：
+```bash
+docker-compose up -d
+```
 
-4. **查看日志**
-   ```bash
-   docker-compose logs -f
-   ```
+4. 访问 http://localhost:3000
 
-5. **停止容器**
-   ```bash
-   docker-compose down
-   ```
-
-### 使用 Docker 命令
+### 使用预构建镜像
 
 ```bash
 docker run -d \
   --name mhss \
   -p 3000:3000 \
-  -e TMDB_API_KEY=你的值 \
-  -e TG_API_ID=你的值 \
-  -e TG_API_HASH=你的值 \
-  -e TG_PHONE_NUMBER=你的值 \
-  -e TG_GROUP_ID=你的值或TG_BOT_USERNAME=@机器人名 \
-  -e TG_SESSION=你的值 \
-  -v $(pwd)/requested-movies.json:/app/requested-movies.json \
+  -e TMDB_API_KEY=你的TMDB_API_KEY \
+  -e EMBY_URL=你的Emby服务器地址 \
+  -e EMBY_API_KEY=你的Emby_API_KEY \
+  -e MEDIAHELP_URL=你的MediaHelp地址 \
+  -e MEDIAHELP_USERNAME=你的MediaHelp用户名 \
+  -e MEDIAHELP_PASSWORD=你的MediaHelp密码 \
   miaona/mhss:latest
 ```
 
-## 技术栈
-
-- 后端：Node.js, Express
-- 前端：原生 HTML/CSS/JavaScript
-- API：TMDB API, Telegram Client API (MTProto), Emby API
-- 容器化：Docker
+## 配置说明
 
 ### TMDB API Key
-1. 访问 https://www.themoviedb.org/
-2. 注册账号并登录
-3. 进入 Settings -> API
-4. 申请 API Key
+1. 访问 https://www.themoviedb.org/settings/api
+2. 注册账号并申请 API Key
+3. 将 API Key 填入 `TMDB_API_KEY`
 
-### Telegram API ID 和 Hash
-1. 访问 https://my.telegram.org/apps
-2. 使用你的 Telegram 账号登录
-3. 创建一个新应用
-4. 获取 `api_id` 和 `api_hash`
+### Emby 配置
+1. `EMBY_URL`: Emby 服务器地址，例如 `http://192.168.1.100:8096`
+2. `EMBY_API_KEY`: 在 Emby 设置 -> API 密钥中生成
 
-### Telegram 目标配置（二选一）
+### MediaHelp 配置
+1. `MEDIAHELP_URL`: MediaHelp 服务器地址
+2. `MEDIAHELP_USERNAME`: MediaHelp 登录用户名
+3. `MEDIAHELP_PASSWORD`: MediaHelp 登录密码
 
-**方式1：发送到群组（推荐）**
-- 如果群组有公开用户名，使用 `TG_GROUP_ID=@groupname`
-- 如果是私有群组，使用数字 ID `TG_GROUP_ID=-1001234567890`
+**注意**：系统会自动使用 MediaHelp 的默认配置（云盘类型、目录、定时任务等），无需额外配置。
 
-**方式2：直接发送给机器人**
-- 使用机器人用户名 `TG_BOT_USERNAME=@your_bot_username`
-- 不需要设置 `TG_GROUP_ID`
+## 使用说明
 
-注意：只需要配置其中一种方式即可。
+1. 使用 Emby 账号登录
+2. 在搜索框中输入影片名称
+3. 点击搜索结果中的 ➕ 按钮订阅
+4. 系统会自动在 MediaHelp 上创建订阅任务
 
-### Emby 配置（可选）
-如果你有 Emby 服务器，可以配置以显示库统计信息：
-- `EMBY_URL`: Emby 服务器地址（如 http://localhost:8096）
-- `EMBY_API_KEY`: 在 Emby 设置中生成的 API 密钥
+## 技术栈
 
+- **后端**: Node.js + Express
+- **前端**: 原生 JavaScript + CSS
+- **API**: TMDB API, Emby API, MediaHelp API
+- **部署**: Docker
+
+## 开源协议
+
+MIT License
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 致谢
+
+- [TMDB](https://www.themoviedb.org/) - 提供影片数据
+- [Emby](https://emby.media/) - 媒体服务器
+- [MediaHelp](https://github.com/tymdun/MediaHelp) - 自动化订阅工具
