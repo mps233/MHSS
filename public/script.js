@@ -883,8 +883,8 @@ function calculateIncompleteItemsPerPage() {
   let rows; // 显示多少排
   
   if (width > 1200) {
-    // 桌面端：固定6列
-    itemsPerRow = 6;
+    // 桌面端：固定7列
+    itemsPerRow = 7;
     rows = 2;
   } else if (width > 768) {
     // 平板：固定5列

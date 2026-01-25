@@ -3108,7 +3108,7 @@ h1 {
 
 .incomplete-list {
   display: grid;
-  grid-template-columns: repeat(6, 1fr); /* 固定6列 */
+  grid-template-columns: repeat(7, 1fr); /* 固定7列 */
   gap: 1rem;
 }
 
