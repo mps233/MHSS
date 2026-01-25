@@ -257,6 +257,7 @@ async function loadEmbyStats() {
 Promise.all([
   loadEmbyStats(),
   loadTrending(),
+  loadIncompleteSubscriptions(),
   loadRecentRequests()
 ]).catch(error => {
   console.error('加载页面数据失败:', error);
@@ -378,7 +379,7 @@ async function loadRecentRequests() {
 }
 
 function displayRecentCarousel(requests) {
-  const recentItems = requests.slice(0, 20); // 增加到20条
+  const recentItems = requests.slice(0, 10); // 只取10条数据
   
   // 判断是否需要滚动
   const minItems = window.innerWidth <= 640 ? 2 : 3;
@@ -552,13 +553,69 @@ let currentTVPage = 1;
 let totalMoviePages = 1;
 let totalTVPages = 1;
 
+// 未完成订阅状态
+var allIncompleteSubscriptions = [];
+var currentIncompletePage = 1;
+var incompletePerPage = 20; // 这个值会在首次加载时动态计算
+var incompleteRefreshInterval = null;
+
+// 计算每页应该显示多少个卡片
+function calculateItemsPerPage() {
+  // 获取实际的容器元素来计算
+  const container = document.querySelector('.movie-grid');
+  if (!container) {
+    return 12; // 如果容器还不存在，使用默认值
+  }
+  
+  // 获取容器的实际宽度
+  const containerWidth = container.clientWidth;
+  if (containerWidth === 0) {
+    return 12; // 容器还未渲染，使用默认值
+  }
+  
+  // 从 CSS 中获取 gap 值
+  const computedStyle = window.getComputedStyle(container);
+  const gap = parseFloat(computedStyle.gap) || 20;
+  
+  // 根据屏幕宽度确定每行数量和显示行数
+  const width = window.innerWidth;
+  let itemsPerRow;
+  let rows; // 显示多少排
+  
+  if (width >= 1200) {
+    // 桌面端：自动计算
+    const minCardWidth = 180;
+    const margin = 20;
+    itemsPerRow = Math.floor((containerWidth - margin) / (minCardWidth + gap));
+    itemsPerRow = Math.max(2, Math.min(8, itemsPerRow));
+    rows = 2;
+  } else if (width >= 768) {
+    // 平板：固定3列
+    itemsPerRow = 3;
+    rows = 3;
+  } else {
+    // 手机：固定3列
+    itemsPerRow = 3;
+    rows = 4;
+  }
+  
+  // 总数 = 每行数量 × 行数
+  const total = itemsPerRow * rows;
+  
+  console.log(`📊 热门内容 - 屏幕: ${width}px, 容器: ${containerWidth}px, 每行: ${itemsPerRow} 个, ${rows} 排, 共: ${total} 个`);
+  
+  return total;
+}
+
 // 加载热门内容
 async function loadTrending(moviePage = 1, tvPage = 1) {
   try {
+    const itemsPerPage = calculateItemsPerPage();
+    
     // 并行加载热门电影和电视剧
     const [moviesResponse, tvResponse] = await Promise.all([
-      fetchWithAuth(`/api/trending/movies?page=${moviePage}`),
-      fetchWithAuth(`/api/trending/tv?page=${tvPage}`)
+      fetchWithAuth(`/api/trending/movies?page=${moviePage}&per_page=${itemsPerPage}`),
+      fetchWithAuth(`/api/trending/tv?page=${tvPage}&per_page=${itemsPerPage}`)
     ]);
     
     const moviesData = await moviesResponse.json();
@@ -579,6 +636,548 @@ async function loadTrending(moviePage = 1, tvPage = 1) {
     console.error('加载热门内容失败:', error);
     trendingMovies.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div><div style="color: #9ca3af;">加载失败</div></div>';
     trendingTV.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div><div style="color: #9ca3af;">加载失败</div></div>';
+  }
+}
+
+// 完全刷新未完成订阅（清除缓存，重新获取所有订阅）
+async function fullRefreshIncompleteSubscriptions() {
+  console.log('🔄 完全刷新未完成订阅（重新获取所有订阅）...');
+  // 清除缓存
+  localStorage.removeItem('incompleteSubscriptions');
+  localStorage.removeItem('incompleteSubscriptionsTime');
+  // 强制从服务器刷新
+  await loadIncompleteSubscriptions(true);
+}
+
+// 强制刷新未完成订阅（轻量级更新）
+async function refreshIncompleteSubscriptions() {
+  console.log('🔄 轻量级刷新未完成订阅...');
+  
+  const container = document.getElementById('incompleteSubscriptions');
+  
+  // 先尝试从 localStorage 加载数据
+  if (allIncompleteSubscriptions.length === 0) {
+    const cachedData = localStorage.getItem('incompleteSubscriptions');
+    if (cachedData) {
+      try {
+        const data = JSON.parse(cachedData);
+        allIncompleteSubscriptions = data.subscriptions || [];
+        console.log(`📦 从缓存恢复 ${allIncompleteSubscriptions.length} 个订阅`);
+      } catch (e) {
+        console.error('解析缓存失败:', e);
+      }
+    }
+  }
+  
+  // 如果还是没有数据，执行完整加载
+  if (allIncompleteSubscriptions.length === 0) {
+    console.log('⚠️  没有缓存数据，执行完整加载...');
+    localStorage.removeItem('incompleteSubscriptions');
+    localStorage.removeItem('incompleteSubscriptionsTime');
+    await loadIncompleteSubscriptions(true);
+    return;
+  }
+  
+  try {
+    // 发送当前订阅列表，只检查集数变化
+    const response = await fetchWithAuth('/api/incomplete-subscriptions/update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        subscriptions: allIncompleteSubscriptions
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('更新失败');
+    }
+    
+    const { newSubscriptions, updates, removed } = await response.json();
+    
+    console.log(`📊 收到更新: ${newSubscriptions.length} 个新订阅, ${updates.length} 个变化, ${removed.length} 个移除`);
+    
+    // 应用更新
+    let hasChanges = false;
+    
+    // 添加新订阅（插入到最前面）
+    if (newSubscriptions.length > 0) {
+      allIncompleteSubscriptions = [...newSubscriptions, ...allIncompleteSubscriptions];
+      hasChanges = true;
+      console.log(`✅ 添加了 ${newSubscriptions.length} 个新订阅`);
+    }
+    
+    // 更新集数
+    updates.forEach(update => {
+      const sub = allIncompleteSubscriptions.find(s => s.id === update.id);
+      if (sub) {
+        sub.subscribedEpisodes = update.subscribedEpisodes;
+        sub.missingEpisodes = update.missingEpisodes;
+        sub.progress = update.progress;
+        hasChanges = true;
+      }
+    });
+    
+    // 移除已完成或已删除的订阅
+    if (removed.length > 0) {
+      allIncompleteSubscriptions = allIncompleteSubscriptions.filter(
+        sub => !removed.includes(sub.id)
+      );
+      hasChanges = true;
+    }
+    
+    if (hasChanges) {
+      // 保存更新后的数据到缓存
+      const cacheData = {
+        subscriptions: allIncompleteSubscriptions,
+        total: allIncompleteSubscriptions.length,
+        cachedAt: Date.now()
+      };
+      localStorage.setItem('incompleteSubscriptions', JSON.stringify(cacheData));
+      localStorage.setItem('incompleteSubscriptionsTime', Date.now().toString());
+      
+      // 重新显示
+      displayIncompleteSubscriptions(currentIncompletePage);
+      console.log('✅ 更新完成并已保存');
+    } else {
+      console.log('✅ 没有变化');
+    }
+  } catch (error) {
+    console.error('❌ 轻量级刷新失败:', error);
+    alert('刷新失败: ' + error.message);
+  }
+}
+
+// 加载未完成订阅
+async function loadIncompleteSubscriptions(forceRefresh = false) {
+  const container = document.getElementById('incompleteSubscriptions');
+  
+  // 显示加载状态
+  if (!forceRefresh) {
+    container.innerHTML = `
+      <div class="loading-spinner">
+        <div class="spinner"></div>
+        <p>正在加载未完成订阅...</p>
+      </div>
+    `;
+  }
+  
+  try {
+    // 从 localStorage 读取缓存
+    const cachedData = localStorage.getItem('incompleteSubscriptions');
+    const cachedTime = localStorage.getItem('incompleteSubscriptionsTime');
+    const cacheExpiry = 7 * 24 * 60 * 60 * 1000; // 7天缓存
+    
+    console.log('🔍 检查缓存:', {
+      hasCachedData: !!cachedData,
+      hasCachedTime: !!cachedTime,
+      cacheAge: cachedTime ? Math.round((Date.now() - parseInt(cachedTime)) / 1000) + '秒' : 'N/A',
+      forceRefresh: forceRefresh
+    });
+    
+    // 如果有缓存且未过期，先显示缓存数据
+    if (!forceRefresh && cachedData && cachedTime && (Date.now() - parseInt(cachedTime)) < cacheExpiry) {
+      console.log('📦 使用缓存的未完成订阅数据');
+      try {
+        const data = JSON.parse(cachedData);
+        allIncompleteSubscriptions = data.subscriptions || [];
+        
+        if (allIncompleteSubscriptions.length === 0) {
+          container.innerHTML = `
+            <div class="incomplete-empty">
+              <svg class="incomplete-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 11l3 3L22 4"></path>
+                <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+              </svg>
+              <p>太棒了！所有订阅都已完成 🎉</p>
+            </div>
+          `;
+        } else {
+          console.log(`📊 显示 ${allIncompleteSubscriptions.length} 个未完成订阅`);
+          // 立即计算每页显示数量并显示
+          incompletePerPage = calculateIncompleteItemsPerPage();
+          console.log(`✅ 计算得到 incompletePerPage = ${incompletePerPage}`);
+          displayIncompleteSubscriptions(1);
+        }
+        
+        // 设置定期轻量级刷新（每5分钟）
+        if (incompleteRefreshInterval) {
+          clearInterval(incompleteRefreshInterval);
+        }
+        incompleteRefreshInterval = setInterval(() => {
+          console.log('🔄 定期轻量级刷新未完成订阅...');
+          refreshIncompleteSubscriptions();
+        }, 5 * 60 * 1000);
+        return;
+      } catch (parseError) {
+        console.error('解析缓存数据失败:', parseError);
+        // 清除损坏的缓存
+        localStorage.removeItem('incompleteSubscriptions');
+        localStorage.removeItem('incompleteSubscriptionsTime');
+      }
+    }
+    
+    console.log('🌐 从服务器获取数据...');
+    const url = forceRefresh ? '/api/incomplete-subscriptions?refresh=true' : '/api/incomplete-subscriptions';
+    
+    let response;
+    try {
+      response = await fetchWithAuth(url);
+    } catch (fetchError) {
+      console.error('网络请求失败:', fetchError);
+      throw new Error('网络连接失败，请检查网络设置');
+    }
+    
+    if (!response.ok) {
+      throw new Error(`服务器错误 ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    allIncompleteSubscriptions = data.subscriptions || [];
+    
+    console.log(`✅ 从服务器获取到 ${allIncompleteSubscriptions.length} 个未完成订阅`);
+    
+    // 保存到 localStorage
+    try {
+      localStorage.setItem('incompleteSubscriptions', JSON.stringify(data));
+      localStorage.setItem('incompleteSubscriptionsTime', Date.now().toString());
+      console.log('💾 数据已保存到缓存');
+    } catch (storageError) {
+      console.error('保存到 localStorage 失败:', storageError);
+    }
+    
+    if (allIncompleteSubscriptions.length === 0) {
+      container.innerHTML = `
+        <div class="incomplete-empty">
+          <svg class="incomplete-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 11l3 3L22 4"></path>
+            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+          </svg>
+          <p>太棒了！所有订阅都已完成 🎉</p>
+        </div>
+      `;
+      return;
+    }
+    
+    // 立即计算每页显示数量并显示
+    incompletePerPage = calculateIncompleteItemsPerPage();
+    console.log(`✅ 计算得到 incompletePerPage = ${incompletePerPage}`);
+    displayIncompleteSubscriptions(currentIncompletePage);
+    
+    // 设置定期轻量级刷新（每5分钟）
+    if (incompleteRefreshInterval) {
+      clearInterval(incompleteRefreshInterval);
+    }
+    incompleteRefreshInterval = setInterval(() => {
+      console.log('🔄 定期轻量级刷新未完成订阅...');
+      refreshIncompleteSubscriptions();
+    }, 5 * 60 * 1000);
+    
+  } catch (error) {
+    console.error('❌ 加载未完成订阅失败:', error);
+    console.error('错误详情:', error.message);
+    console.error('错误堆栈:', error.stack);
+    container.innerHTML = `
+      <div class="incomplete-empty">
+        <svg class="incomplete-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M8 15s1.5-2 4-2 4 2 4 2"></path>
+          <line x1="9" y1="9" x2="9.01" y2="9"></line>
+          <line x1="15" y1="9" x2="15.01" y2="9"></line>
+        </svg>
+        <p>加载失败，请刷新重试</p>
+        <p style="font-size: 0.75rem; margin-top: 0.5rem; color: var(--text-secondary);">${error.message}</p>
+      </div>
+    `;
+  }
+}
+
+// 计算未完成订阅每页应该显示多少个
+function calculateIncompleteItemsPerPage() {
+  const container = document.querySelector('.incomplete-list');
+  if (!container) {
+    console.log('⚠️  容器不存在，使用默认值 20');
+    return 20; // 默认值
+  }
+  
+  // 等待容器渲染完成
+  const containerWidth = container.clientWidth;
+  if (containerWidth === 0) {
+    console.log('⚠️  容器宽度为 0，使用默认值 20');
+    return 20; // 容器还未渲染，使用默认值
+  }
+  
+  const computedStyle = window.getComputedStyle(container);
+  const gap = parseFloat(computedStyle.gap) || 16;
+  
+  // 根据屏幕宽度确定卡片最小宽度和显示行数
+  const width = window.innerWidth;
+  let minCardWidth;
+  let rows; // 显示多少排
+  
+  if (width >= 1200) {
+    minCardWidth = 180;
+    rows = 2; // 桌面端显示2排
+  } else if (width >= 768) {
+    minCardWidth = 160;
+    rows = 3; // 平板显示3排
+  } else if (width >= 480) {
+    minCardWidth = 140;
+    rows = 4; // 大手机显示4排
+  } else {
+    minCardWidth = 120;
+    rows = 5; // 小手机显示5排
+  }
+  
+  // 计算每行能放多少个（更保守的计算）
+  // 使用更大的余量确保不会换行
+  const margin = 20; // 20px 余量
+  const itemsPerRow = Math.floor((containerWidth - margin) / (minCardWidth + gap));
+  const safeItemsPerRow = Math.max(2, Math.min(10, itemsPerRow));
+  
+  // 总数 = 每行数量 × 行数
+  const total = safeItemsPerRow * rows;
+  
+  console.log(`📊 未完成订阅 - 屏幕: ${width}px, 容器: ${containerWidth}px, 卡片: ${minCardWidth}px, 间距: ${gap}px, 每行: ${safeItemsPerRow} 个, ${rows} 排, 共: ${total} 个`);
+  
+  return total;
+}
+
+function displayIncompleteSubscriptions(page) {
+  const container = document.getElementById('incompleteSubscriptions');
+  const pagination = document.getElementById('incompletePagination');
+  
+  // 调试：检查数据状态
+  console.log(`🎨 displayIncompleteSubscriptions 被调用: page=${page}, perPage=${incompletePerPage}, total=${allIncompleteSubscriptions.length}`);
+  console.log(`   数据样本:`, allIncompleteSubscriptions.slice(0, 2));
+  
+  // 如果数据为空，尝试从缓存恢复
+  if (allIncompleteSubscriptions.length === 0) {
+    console.warn('⚠️  allIncompleteSubscriptions 为空，尝试从缓存恢复...');
+    const cachedData = localStorage.getItem('incompleteSubscriptions');
+    if (cachedData) {
+      try {
+        const data = JSON.parse(cachedData);
+        allIncompleteSubscriptions = data.subscriptions || [];
+        console.log(`✅ 从缓存恢复了 ${allIncompleteSubscriptions.length} 个订阅`);
+      } catch (e) {
+        console.error('❌ 从缓存恢复失败:', e);
+      }
+    }
+  }
+  
+  // 使用全局的 incompletePerPage 值，确保分页一致
+  const perPage = incompletePerPage;
+  
+  // 如果 perPage 还是默认值，重新计算
+  if (perPage === 20) {
+    const calculated = calculateIncompleteItemsPerPage();
+    if (calculated !== 20) {
+      console.log(`⚠️  perPage 是默认值，重新计算为: ${calculated}`);
+      incompletePerPage = calculated;
+    }
+  }
+  
+  currentIncompletePage = page;
+  const startIndex = (page - 1) * incompletePerPage;
+  const endIndex = startIndex + incompletePerPage;
+  const pageData = allIncompleteSubscriptions.slice(startIndex, endIndex);
+  
+  console.log(`📄 显示第 ${page} 页: startIndex=${startIndex}, endIndex=${endIndex}, 共 ${pageData.length} 项, perPage=${incompletePerPage}`);
+  
+  if (pageData.length === 0 && page > 1) {
+    console.warn(`⚠️  第 ${page} 页没有数据，返回第一页`);
+    displayIncompleteSubscriptions(1);
+    return;
+  }
+  
+  container.innerHTML = pageData.map(sub => {
+    const posterUrl = sub.poster || '/256.webp';
+    const progressPercent = sub.progress || 0;
+    const isMovie = sub.mediaType === 'movie';
+    
+    // 状态图标
+    const statusIcon = {
+      'incomplete': '<path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
+      'ongoing': '<path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
+      'pending': '<path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
+      'unknown': '<path d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
+    }[sub.status] || '';
+    
+    return `
+      <div class="incomplete-item">
+        <img src="${posterUrl}" class="incomplete-poster" alt="${escapeHtml(sub.title)}" loading="lazy" onerror="this.src='/256.webp'">
+        <div class="incomplete-info">
+          <div class="incomplete-title">${escapeHtml(sub.title)}</div>
+          ${isMovie ? `
+            <div class="incomplete-stats">
+              <div class="incomplete-stat">
+                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path>
+                </svg>
+                <span>类型: <span class="incomplete-stat-value">电影</span></span>
+              </div>
+              <div class="incomplete-stat">
+                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span>状态: <span class="incomplete-stat-value" style="color: #ef4444;">未入库</span></span>
+              </div>
+            </div>
+          ` : `
+            <div class="incomplete-stats">
+              <div class="incomplete-stat">
+                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"></path>
+                </svg>
+                <span>已入库: <span class="incomplete-stat-value">${sub.subscribedEpisodes}</span> 集</span>
+              </div>
+              <div class="incomplete-stat">
+                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span>总集数: <span class="incomplete-stat-value">${sub.tmdbTotalEpisodes}</span> 集</span>
+              </div>
+              <div class="incomplete-stat">
+                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <span>缺少: <span class="incomplete-stat-value" style="color: #ef4444;">${sub.missingEpisodes}</span> 集</span>
+              </div>
+            </div>
+          `}
+          ${!isMovie && sub.tmdbTotalEpisodes > 0 ? `
+            <div class="incomplete-progress">
+              <div class="incomplete-progress-bar">
+                <div class="incomplete-progress-fill" style="width: ${progressPercent}%"></div>
+              </div>
+            </div>
+          ` : ''}
+          <span class="incomplete-status ${sub.status}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              ${statusIcon}
+            </svg>
+            ${sub.statusText}
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // 更新分页
+  updateIncompletePagination(page);
+}
+
+function updateIncompletePagination(currentPage) {
+  const pagination = document.getElementById('incompletePagination');
+  // 使用全局的 incompletePerPage 值，确保分页一致
+  const perPage = incompletePerPage;
+  const totalPages = Math.ceil(allIncompleteSubscriptions.length / perPage);
+  
+  console.log(`📄 更新分页: currentPage=${currentPage}, perPage=${perPage}, total=${allIncompleteSubscriptions.length}, totalPages=${totalPages}`);
+  
+  if (totalPages <= 1) {
+    pagination.innerHTML = '';
+    return;
+  }
+  
+  // 确保当前页不超过总页数
+  if (currentPage > totalPages) {
+    console.warn(`⚠️  当前页 ${currentPage} 超过总页数 ${totalPages}，重置到第一页`);
+    displayIncompleteSubscriptions(1);
+    return;
+  }
+  
+  let html = '<div class="pagination">';
+  
+  // 上一页
+  if (currentPage > 1) {
+    html += `<button class="page-btn" onclick="changeIncompletePage(${currentPage - 1})">上一页</button>`;
+  }
+  
+  // 页码
+  const maxButtons = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  
+  if (endPage - startPage < maxButtons - 1) {
+    startPage = Math.max(1, endPage - maxButtons + 1);
+  }
+  
+  if (startPage > 1) {
+    html += `<button class="page-btn" onclick="changeIncompletePage(1)">1</button>`;
+    if (startPage > 2) html += '<span class="page-dots">...</span>';
+  }
+  
+  for (let i = startPage; i <= endPage; i++) {
+    if (i === currentPage) {
+      html += `<button class="page-btn active">${i}</button>`;
+    } else {
+      html += `<button class="page-btn" onclick="changeIncompletePage(${i})">${i}</button>`;
+    }
+  }
+  
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) html += '<span class="page-dots">...</span>';
+    html += `<button class="page-btn" onclick="changeIncompletePage(${totalPages})">${totalPages}</button>`;
+  }
+  
+  // 下一页
+  if (currentPage < totalPages) {
+    html += `<button class="page-btn" onclick="changeIncompletePage(${currentPage + 1})">下一页</button>`;
+  }
+  
+  html += '</div>';
+  pagination.innerHTML = html;
+}
+
+function changeIncompletePage(page) {
+  displayIncompleteSubscriptions(page);
+  
+  // 滚动到未完成订阅区域
+  const section = document.querySelector('.incomplete-section');
+  if (section) {
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+// 刷新未完成订阅数据
+async function refreshIncompleteSubscriptions() {
+  console.log('🔄 手动刷新未完成订阅数据');
+  
+  const btn = document.querySelector('.refresh-btn');
+  const svg = btn?.querySelector('svg');
+  
+  // 添加加载状态
+  if (btn) {
+    btn.disabled = true;
+    btn.style.cursor = 'not-allowed';
+    btn.style.opacity = '0.7';
+  }
+  if (svg) {
+    svg.style.animation = 'rotate 1s linear infinite';
+  }
+  
+  try {
+    // 清除缓存
+    localStorage.removeItem('incompleteSubscriptions');
+    localStorage.removeItem('incompleteSubscriptionsTime');
+    
+    // 重新加载
+    allIncompleteSubscriptions = [];
+    await loadIncompleteSubscriptions(true);
+  } finally {
+    // 恢复按钮状态
+    if (btn) {
+      btn.disabled = false;
+      btn.style.cursor = 'pointer';
+      btn.style.opacity = '1';
+    }
+    if (svg) {
+      svg.style.animation = '';
+    }
   }
 }
 
@@ -737,64 +1336,82 @@ function displayMovies(movies, container) {
     }
   }).join('');
   
-  // 动态计算并隐藏超过2行的卡片
-  limitToTwoRows(container);
+  // 不再需要隐藏卡片，因为已经按需加载了正确数量
 }
 
 // 限制只显示指定行数
 function limitToTwoRows(container) {
-  setTimeout(() => {
+  // 使用 requestAnimationFrame 确保在渲染前执行
+  requestAnimationFrame(() => {
     const cards = container.querySelectorAll('.movie-card');
     if (cards.length === 0) return;
     
-    // 先显示所有卡片，让 Grid 自然布局
-    cards.forEach(card => card.style.display = '');
+    // 获取所有卡片的位置
+    const cardPositions = Array.from(cards).map(card => ({
+      card,
+      top: card.offsetTop
+    }));
     
-    // 等待布局完成后再计算
-    requestAnimationFrame(() => {
-      // 获取所有卡片的位置
-      const cardPositions = Array.from(cards).map(card => ({
-        card,
-        top: card.offsetTop
-      }));
-      
-      // 按 top 值分组，找出有多少行
-      const rows = [];
-      cardPositions.forEach(({ card, top }) => {
-        let rowIndex = rows.findIndex(row => Math.abs(row.top - top) < 5); // 允许5px误差
-        if (rowIndex === -1) {
-          rows.push({ top, cards: [card] });
-        } else {
-          rows[rowIndex].cards.push(card);
-        }
-      });
-      
-      // 根据屏幕宽度决定显示几行
-      let maxRows = 2; // 默认2行
-      if (window.innerWidth <= 768) {
-        maxRows = 4; // 平板和手机显示4行
+    // 按 top 值分组，找出有多少行
+    const rows = [];
+    cardPositions.forEach(({ card, top }) => {
+      let rowIndex = rows.findIndex(row => Math.abs(row.top - top) < 5); // 允许5px误差
+      if (rowIndex === -1) {
+        rows.push({ top, cards: [card] });
+      } else {
+        rows[rowIndex].cards.push(card);
       }
-      if (window.innerWidth <= 480) {
-        maxRows = 5; // 小手机显示5行
-      }
-      
-      // 按 top 值排序
-      rows.sort((a, b) => a.top - b.top);
-      
-      // 隐藏超过指定行数的卡片
-      rows.forEach((row, index) => {
-        if (index >= maxRows) {
-          row.cards.forEach(card => card.style.display = 'none');
-        }
-      });
     });
-  }, 100); // 等待DOM渲染完成
+    
+    // 根据屏幕宽度决定显示几行
+    let maxRows = 2; // 默认2行
+    if (window.innerWidth <= 768) {
+      maxRows = 4; // 平板和手机显示4行
+    }
+    if (window.innerWidth <= 480) {
+      maxRows = 5; // 小手机显示5行
+    }
+    
+    // 按 top 值排序
+    rows.sort((a, b) => a.top - b.top);
+    
+    // 使用 visibility 和 opacity 隐藏，避免闪烁
+    rows.forEach((row, index) => {
+      if (index >= maxRows) {
+        row.cards.forEach(card => {
+          card.style.visibility = 'hidden';
+          card.style.opacity = '0';
+          card.style.position = 'absolute';
+          card.style.pointerEvents = 'none';
+        });
+      } else {
+        row.cards.forEach(card => {
+          card.style.visibility = '';
+          card.style.opacity = '';
+          card.style.position = '';
+          card.style.pointerEvents = '';
+        });
+      }
+    });
+  });
 }
 
-// 窗口大小改变时重新计算
+// 窗口大小改变时重新加载（防抖）
+let resizeTimeout;
 window.addEventListener('resize', () => {
-  limitToTwoRows(trendingMovies);
-  limitToTwoRows(trendingTV);
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    console.log('🔄 窗口大小改变，重新加载热门内容和未完成订阅');
+    loadTrending(currentMoviePage, currentTVPage);
+    
+    // 重新计算并显示未完成订阅（如果已加载）
+    if (allIncompleteSubscriptions.length > 0) {
+      incompletePerPage = calculateIncompleteItemsPerPage();
+      // 重置到第一页，避免页码超出范围
+      currentIncompletePage = 1;
+      displayIncompleteSubscriptions(1);
+    }
+  }, 500); // 500ms 防抖
 });
 
 searchInput.addEventListener('input', (e) => {
@@ -940,11 +1557,26 @@ async function selectMovie(id, title, mediaType, buttonElement, movieData = null
           <path d="M7 3.5V7H10" stroke="#fbbf24" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
       `;
-      buttonElement.title = '已请求';
       
-      // 重新加载统计和热门内容
+      // 更新 title 显示链接数量
+      if (data.hdhiveLinksCount > 0) {
+        buttonElement.title = `已请求 (${data.hdhiveLinksCount} 个免费链接)`;
+      } else {
+        buttonElement.title = '已请求';
+      }
+      
+      // 如果是电视剧或电影订阅，触发轻量级刷新以添加到未完成订阅列表
+      if (mediaType === 'tv' || mediaType === 'movie') {
+        console.log(`📺 新增${mediaType === 'tv' ? '电视剧' : '电影'}订阅，触发轻量级刷新...`);
+        // 延迟2秒后刷新，给 MediaHelper 时间处理订阅
+        setTimeout(() => {
+          refreshIncompleteSubscriptions();
+        }, 2000);
+      }
+      
+      // 重新加载统计和热门内容（保持当前页码）
       loadEmbyStats();
-      loadTrending();
+      loadTrending(currentMoviePage, currentTVPage);
       loadRecentRequests();
     } else {
       throw new Error(data.error || '发送失败');
@@ -1289,3 +1921,406 @@ if (logoutBtn) {
 if (mobileLogoutBtn) {
   mobileLogoutBtn.addEventListener('click', handleLogout);
 }
+
+
+// HDHive 批量查找日志
+function toggleLogPanel() {
+  const panel = document.getElementById('logPanel');
+  panel.classList.toggle('active');
+}
+
+// 点击日志面板外部关闭
+document.addEventListener('click', function(event) {
+  const panel = document.getElementById('logPanel');
+  const logBtn = document.getElementById('showLogBtn');
+  
+  // 如果面板是打开的，且点击的不是面板内部或日志按钮
+  if (panel && panel.classList.contains('active')) {
+    if (!panel.contains(event.target) && !logBtn.contains(event.target)) {
+      panel.classList.remove('active');
+    }
+  }
+});
+
+function addLog(title, info, type = 'info') {
+  const content = document.getElementById('logPanelContent');
+  
+  // 移除空状态
+  const empty = content.querySelector('.log-empty');
+  if (empty) {
+    empty.remove();
+  }
+  
+  const logItem = document.createElement('div');
+  logItem.className = `log-item ${type}`;
+  
+  const now = new Date();
+  const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+  
+  logItem.innerHTML = `
+    <div class="log-item-title">${escapeHtml(title)}</div>
+    <div class="log-item-info">${escapeHtml(info)}</div>
+    <div class="log-item-time">${timeStr}</div>
+  `;
+  
+  content.insertBefore(logItem, content.firstChild);
+  
+  // 限制日志数量
+  const logs = content.querySelectorAll('.log-item');
+  if (logs.length > 50) {
+    logs[logs.length - 1].remove();
+  }
+}
+
+function clearLogs() {
+  const content = document.getElementById('logPanelContent');
+  content.innerHTML = '<div class="log-empty">暂无日志</div>';
+}
+
+// 定时任务面板
+function toggleSchedulerPanel() {
+  const panel = document.getElementById('schedulerPanel');
+  panel.classList.toggle('active');
+  
+  // 打开时加载当前状态
+  if (panel.classList.contains('active')) {
+    loadSchedulerStatus();
+  }
+}
+
+// 点击定时任务面板外部关闭
+document.addEventListener('click', function(event) {
+  const panel = document.getElementById('schedulerPanel');
+  const schedulerBtn = document.getElementById('schedulerBtn');
+  
+  if (panel && panel.classList.contains('active')) {
+    // 检查点击是否在面板内、导航按钮上、或者任务按钮上
+    const isInsidePanel = panel.contains(event.target);
+    const isSchedulerBtn = schedulerBtn && schedulerBtn.contains(event.target);
+    const isTaskButton = event.target.closest('.task-run-btn') || event.target.closest('.task-stop-btn');
+    
+    if (!isInsidePanel && !isSchedulerBtn && !isTaskButton) {
+      panel.classList.remove('active');
+    }
+  }
+});
+
+// 加载定时任务状态
+async function loadSchedulerStatus() {
+  try {
+    const response = await fetch('/api/scheduler/status');
+    const data = await response.json();
+    
+    const toggle = document.getElementById('autoSearchToggle');
+    const statusBadge = document.getElementById('schedulerStatusBadge');
+    const nextRun = document.getElementById('schedulerNextRun');
+    
+    toggle.checked = data.enabled;
+    
+    if (data.enabled) {
+      statusBadge.textContent = '✓ 已启用';
+      statusBadge.className = 'status-badge active';
+    } else {
+      statusBadge.textContent = '未启用';
+      statusBadge.className = 'status-badge inactive';
+    }
+    
+    if (data.enabled && data.nextRun) {
+      const nextDate = new Date(data.nextRun);
+      const now = new Date();
+      const diff = nextDate - now;
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      
+      if (days > 0) {
+        nextRun.textContent = `${days}天${hours}小时后`;
+      } else if (hours > 0) {
+        nextRun.textContent = `${hours}小时后`;
+      } else {
+        nextRun.textContent = '即将运行';
+      }
+    } else {
+      nextRun.textContent = '-';
+    }
+  } catch (error) {
+    console.error('加载定时任务状态失败:', error);
+  }
+}
+
+// 切换自动查找
+async function toggleAutoSearch(enabled) {
+  try {
+    const response = await fetch('/api/scheduler/toggle', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ enabled })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      loadSchedulerStatus();
+    } else {
+      console.error('操作失败:', data.error);
+      // 恢复开关状态
+      document.getElementById('autoSearchToggle').checked = !enabled;
+    }
+  } catch (error) {
+    console.error('切换定时任务失败:', error);
+    // 恢复开关状态
+    document.getElementById('autoSearchToggle').checked = !enabled;
+  }
+}
+
+// 立即运行任务
+async function runTaskNow(event) {
+  event.preventDefault();
+  event.stopPropagation(); // 阻止事件冒泡
+  
+  // 检查是否已有任务在运行
+  if (isTaskRunning) {
+    console.log('已有任务在运行中');
+    return;
+  }
+  
+  try {
+    // 调用批量查找（不关闭面板）
+    await batchSearchHDHive();
+    
+  } catch (error) {
+    console.error('立即运行失败:', error);
+  }
+}
+
+// 更新"立即运行"按钮状态
+function updateTaskRunButton() {
+  const runBtn = document.querySelector('.task-run-btn');
+  const stopBtn = document.querySelector('.task-stop-btn');
+  console.log('🔄 更新按钮状态, isTaskRunning =', isTaskRunning, 'runBtn =', !!runBtn, 'stopBtn =', !!stopBtn);
+  
+  if (!runBtn || !stopBtn) return;
+  
+  if (isTaskRunning) {
+    // 隐藏运行按钮，显示停止按钮
+    runBtn.style.display = 'none';
+    stopBtn.style.display = 'inline-flex';
+    stopBtn.disabled = false;
+    stopBtn.style.opacity = '1';
+    stopBtn.style.cursor = 'pointer';
+    stopBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="6" y="6" width="12" height="12"></rect>
+      </svg>
+      <span>停止</span>
+    `;
+  } else {
+    // 显示运行按钮，隐藏停止按钮
+    runBtn.style.display = 'inline-flex';
+    runBtn.disabled = false;
+    runBtn.style.opacity = '1';
+    runBtn.style.cursor = 'pointer';
+    runBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+      </svg>
+      <span>立即运行</span>
+    `;
+    stopBtn.style.display = 'none';
+  }
+}
+
+// 停止任务
+async function stopTaskNow(event) {
+  event.preventDefault();
+  event.stopPropagation(); // 阻止事件冒泡
+  
+  const btn = event.target.closest('.task-stop-btn');
+  if (!btn) return;
+  
+  // 禁用按钮
+  btn.disabled = true;
+  btn.style.opacity = '0.5';
+  btn.style.cursor = 'not-allowed';
+  btn.querySelector('span').textContent = '停止中...';
+  
+  try {
+    const response = await fetchWithAuth('/api/hdhive/batch-search/stop', {
+      method: 'POST'
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // 停止轮询
+      if (batchSearchPollingInterval) {
+        clearInterval(batchSearchPollingInterval);
+        batchSearchPollingInterval = null;
+      }
+      
+      isTaskRunning = false;
+      updateTaskRunButton();
+      
+      // 清空日志
+      clearLogs();
+      
+      console.log('任务已停止');
+    } else {
+      throw new Error(data.error || '停止失败');
+    }
+  } catch (error) {
+    console.error('停止任务失败:', error);
+    // 恢复按钮
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+    btn.querySelector('span').textContent = '停止';
+  }
+}
+
+// 批量查找 HDHive 链接（使用后台任务）
+async function batchSearchHDHive() {
+  // 确保数据已加载
+  if (!allIncompleteSubscriptions || allIncompleteSubscriptions.length === 0) {
+    // 尝试从 localStorage 加载
+    const cachedData = localStorage.getItem('incompleteSubscriptions');
+    if (cachedData) {
+      try {
+        const data = JSON.parse(cachedData);
+        allIncompleteSubscriptions = data.subscriptions || [];
+      } catch (e) {
+        console.error('解析缓存失败:', e);
+      }
+    }
+  }
+  
+  if (!allIncompleteSubscriptions || allIncompleteSubscriptions.length === 0) {
+    console.log('没有未完成的订阅');
+    return;
+  }
+  
+  try {
+    // 启动后台任务
+    const response = await fetchWithAuth('/api/hdhive/batch-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscriptions: allIncompleteSubscriptions })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // 清空日志
+      clearLogs();
+      
+      // 开始轮询任务状态（会设置 isTaskRunning = true 并更新按钮）
+      startBatchSearchPolling();
+    } else {
+      throw new Error(data.error || '启动任务失败');
+    }
+  } catch (error) {
+    console.error('启动批量查找失败:', error);
+  }
+}
+
+// 轮询批量查找任务状态
+// 批量查找任务状态
+let batchSearchPollingInterval = null;
+let isTaskRunning = false;
+
+function startBatchSearchPolling() {
+  if (batchSearchPollingInterval) {
+    clearInterval(batchSearchPollingInterval);
+  }
+  
+  isTaskRunning = true;
+  console.log('🚀 开始轮询任务状态, isTaskRunning =', isTaskRunning);
+  updateTaskRunButton(); // 更新按钮状态
+  
+  batchSearchPollingInterval = setInterval(async () => {
+    try {
+      const response = await fetchWithAuth('/api/hdhive/batch-search/status');
+      const status = await response.json();
+      
+      // 更新日志
+      updateBatchSearchLogs(status);
+      
+      // 如果任务完成，停止轮询
+      if (!status.running) {
+        clearInterval(batchSearchPollingInterval);
+        batchSearchPollingInterval = null;
+        isTaskRunning = false;
+        console.log('✅ 任务完成, isTaskRunning =', isTaskRunning);
+        updateTaskRunButton(); // 更新按钮状态
+      }
+    } catch (error) {
+      console.error('获取任务状态失败:', error);
+    }
+  }, 1000); // 每秒更新一次
+}
+
+function updateBatchSearchLogs(status) {
+  const content = document.getElementById('logPanelContent');
+  
+  // 清空现有日志
+  content.innerHTML = '';
+  
+  // 显示进度
+  if (status.running && status.current) {
+    const progressDiv = document.createElement('div');
+    progressDiv.className = 'log-item info';
+    progressDiv.innerHTML = `
+      <div class="log-item-title">正在查找: ${escapeHtml(status.current)}</div>
+      <div class="log-item-info">进度: ${status.progress}/${status.total}</div>
+    `;
+    content.appendChild(progressDiv);
+  }
+  
+  // 显示日志
+  status.logs.forEach(log => {
+    const logItem = document.createElement('div');
+    logItem.className = `log-item ${log.status}`;
+    
+    const time = new Date(log.time);
+    const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`;
+    
+    logItem.innerHTML = `
+      <div class="log-item-title">${escapeHtml(log.title)}</div>
+      <div class="log-item-info">${escapeHtml(log.message)}</div>
+      <div class="log-item-time">${timeStr}</div>
+    `;
+    
+    content.appendChild(logItem);
+  });
+  
+  if (status.logs.length === 0 && !status.running) {
+    content.innerHTML = '<div class="log-empty">暂无日志</div>';
+  }
+}
+
+// 页面加载时检查是否有正在运行的任务
+window.addEventListener('load', async () => {
+  try {
+    const response = await fetchWithAuth('/api/hdhive/batch-search/status');
+    const status = await response.json();
+    
+    if (status.running) {
+      // 有任务正在运行，开始轮询（不自动打开日志面板）
+      isTaskRunning = true;
+      
+      const btn = document.getElementById('batchSearchBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner-small" style="display: inline-block; margin-right: 0.5rem;"></div>查找中...';
+      }
+      
+      // 更新立即运行按钮状态
+      updateTaskRunButton();
+      
+      startBatchSearchPolling();
+    }
+  } catch (error) {
+    console.error('检查任务状态失败:', error);
+  }
+});

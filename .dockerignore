@@ -7,3 +7,23 @@ README.md
 image
 *.md
 .DS_Store
+# 排除 macOS 版本的 hdhive 模块（Docker 会下载 Linux 版本）
+hdhive_module/*.darwin.so
+hdhive_module/*.dylib
+# 排除 Cookie 状态文件（每个容器应该有自己的 Cookie）
+hdhive_state.json
+sessions.json
+scheduler_state.json
+# 排除日志文件
+*.log
+# 排除 Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+# 排除测试文件
+test-*.js
+reverse-engineer-hdhive.js
+hdhive-browser-test.js
+test_hdhive_python.py
+# 排除 study 文件夹
+study

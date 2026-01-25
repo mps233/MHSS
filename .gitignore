@@ -3,3 +3,17 @@ node_modules/
 .DS_Store
 *.log
 sessions.json
+scheduler_state.json
+hdhive_state.json
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 编辑器配置
+.vscode/
+
+# 研究/测试代码
+study/

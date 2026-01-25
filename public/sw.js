@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mhss-v3'; // 改变版本号强制更新
+const CACHE_NAME = 'mhss-v4'; // 改变版本号强制更新
 const urlsToCache = [
   '/',
   '/index.html',
@@ -42,12 +42,22 @@ self.addEventListener('activate', event => {
 
 // 拦截请求 - 网络优先策略
 self.addEventListener('fetch', event => {
+  // 只处理 http/https 请求，忽略 chrome-extension 等其他协议
+  if (!event.request.url.startsWith('http')) {
+    return;
+  }
+  
   event.respondWith(
     // 先尝试网络请求
     fetch(event.request)
       .then(response => {
         // 检查是否是有效响应
         if (!response || response.status !== 200 || response.type !== 'basic') {
+          return response;
+        }
+        
+        // 只缓存 GET 请求（POST/PUT/DELETE 等不缓存）
+        if (event.request.method !== 'GET') {
           return response;
         }
         

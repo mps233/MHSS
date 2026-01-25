@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="汤泡饭">
   <link rel="apple-touch-icon" href="/256.webp">
-  <link rel="manifest" href="/manifest.json">
+  <link rel="manifest" href="/manifest.json?v=1">
   
   <script>
     // 在页面渲染前设置主题，避免闪烁
@@ -21,7 +21,7 @@
       document.documentElement.setAttribute('data-theme', savedTheme);
     })();
   </script>
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=19">
   <!-- Preconnect to external resources -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
@@ -81,6 +81,27 @@
             </svg>
           </span>
           <span>GitHub</span>
+        </a>
+        <a href="#" class="nav-link" id="showLogBtn" onclick="toggleLogPanel(); return false;">
+          <span class="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+          </span>
+          <span>日志</span>
+        </a>
+        <a href="#" class="nav-link" id="schedulerBtn" onclick="toggleSchedulerPanel(); return false;">
+          <span class="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </span>
+          <span>任务</span>
         </a>
         <a href="#" class="nav-link" id="logoutBtn">
           <span class="nav-icon">
@@ -381,6 +402,39 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 未完成订阅区域 -->
+    <div class="incomplete-container">
+      <div class="wide-container">
+        <section class="incomplete-section">
+          <div class="section-header">
+            <h2 class="section-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              未完成订阅
+              <button onclick="refreshIncompleteSubscriptions()" class="refresh-btn" title="刷新数据">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+              </button>
+            </h2>
+            <p class="section-subtitle">订阅了但还有缺集或未更新完的剧集</p>
+          </div>
+          <div id="incompleteSubscriptions" class="incomplete-list">
+            <!-- 加载中 -->
+            <div class="loading-spinner">
+              <div class="spinner"></div>
+              <p>正在检查订阅...</p>
+            </div>
+          </div>
+          <div id="incompletePagination" class="incomplete-pagination"></div>
+        </section>
       </div>
     </div>
 
@@ -724,6 +778,69 @@
     </div>
   </footer>
 
-  <script src="script.js?v=3"></script>
+  <!-- HDHive 查找日志面板 -->
+  <div id="logPanel" class="log-panel">
+    <div class="log-panel-header">
+      <h3>HDHive 日志</h3>
+      <button onclick="toggleLogPanel()" class="log-panel-close">×</button>
+    </div>
+    <div class="log-panel-content" id="logPanelContent">
+      <div class="log-empty">暂无日志</div>
+    </div>
+  </div>
+
+  <!-- 定时任务面板 -->
+  <div id="schedulerPanel" class="log-panel">
+    <div class="log-panel-header">
+      <h3>⏰ 任务</h3>
+      <button onclick="toggleSchedulerPanel()" class="log-panel-close">×</button>
+    </div>
+    <div class="log-panel-content" style="padding: 1rem;">
+      <!-- 任务卡片列表 -->
+      <div class="task-list">
+        <!-- 任务卡片 1: 影巢批量查找 -->
+        <div class="task-card">
+          <div class="task-header">
+            <div class="task-icon">
+              <img src="https://hdhive.com/apple-touch-icon.png" alt="影巢" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+            </div>
+            <div class="task-info">
+              <h4>影巢批量查找</h4>
+              <p>每 7 天自动查找一次</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoSearchToggle" onchange="toggleAutoSearch(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="task-status">
+            <div class="task-status-left">
+              <span class="status-badge" id="schedulerStatusBadge">未启用</span>
+              <span class="task-next-run" id="schedulerNextRun">-</span>
+            </div>
+            <div class="task-actions">
+              <button class="task-run-btn" onclick="runTaskNow(event)" title="立即运行一次批量查找">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>立即运行</span>
+              </button>
+              <button class="task-stop-btn" onclick="stopTaskNow(event)" title="停止当前任务" style="display: none;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="6" y="6" width="12" height="12"></rect>
+                </svg>
+                <span>停止</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 未来可以在这里添加更多任务卡片 -->
+        <!-- <div class="task-card">...</div> -->
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js?v=37"></script>
 </body>
 </html>

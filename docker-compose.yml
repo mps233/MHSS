@@ -7,15 +7,30 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    volumes:
+      # 挂载 hdhive_state.json 以持久化 Cookie
+      - ./hdhive_state.json:/app/hdhive_state.json
     environment:
+      # 必需配置
       - TMDB_API_KEY=你的TMDB_API_KEY
       - EMBY_URL=你的Emby服务器地址
       - EMBY_API_KEY=你的Emby_API_KEY
       - MEDIAHELPER_URL=你的MediaHelper服务器地址
       - MEDIAHELPER_USERNAME=你的MediaHelper用户名
       - MEDIAHELPER_PASSWORD=你的MediaHelper密码
-      # - MEDIAHELPER_CLOUD_TYPE=drive115  # 可选，系统会自动获取
       - PORT=3000
-      # 可选：如果访问 TMDB 较慢，可以配置代理
-      # - HTTP_PROXY=http://127.0.0.1:7890
-      # - HTTPS_PROXY=http://127.0.0.1:7890
+      
+      # 可选：MediaHelper 云盘类型（系统会自动获取）
+      # - MEDIAHELPER_CLOUD_TYPE=drive115
+      
+      # 可选：HTTP 代理（如果访问 TMDB 较慢）
+      # - HTTP_PROXY=http://192.168.1.100:7890
+      # - HTTPS_PROXY=http://192.168.1.100:7890
+      
+      # 可选：HDHive 配置（自动获取免费 115 链接）
+      # 推荐：只配置账号密码，Cookie 自动管理
+      - HDHIVE_ENABLED=true
+      - HDHIVE_USERNAME=你的影巢账号
+      - HDHIVE_PASSWORD=你的影巢密码
+      # 备选：手动 Cookie（不推荐，会过期）
+      # - HDHIVE_COOKIE=token=xxx; csrf_access_token=xxx
