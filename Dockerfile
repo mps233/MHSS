@@ -8,33 +8,17 @@ ENV NODE_VERSION=18
 # 设置工作目录
 WORKDIR /app
 
-# 安装 Node.js 18, Python 3.12 和必要的系统依赖
-RUN apt-get update && apt-get install -y \
-    # Node.js 依赖
+# 安装基础工具和 Python 3.12
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gnupg \
-    # Python 3.12（Ubuntu 24.04 自带）
-    python3.12 \
+    python3 \
     python3-pip \
-    # Playwright Chromium 依赖
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libdbus-1-3 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
     && rm -rf /var/lib/apt/lists/*
+
+# 验证 Python 版本（Ubuntu 24.04 自带 Python 3.12）
+RUN python3 --version
 
 # 安装 Node.js 18
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
@@ -42,7 +26,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # 验证版本
-RUN node --version && npm --version && python3.12 --version
+RUN node --version && npm --version
 
 # 安装 Python 依赖
 RUN pip3 install --break-system-packages --no-cache-dir pyjwt requests playwright
@@ -51,7 +35,7 @@ RUN pip3 install --break-system-packages --no-cache-dir pyjwt requests playwrigh
 # 用于 HDHive 自动登录获取 Cookie
 # 设置环境变量以加速下载
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN python3.12 -m playwright install chromium-headless-shell --with-deps
+RUN python3 -m playwright install chromium-headless-shell --with-deps
 
 # 复制 package.json 和 package-lock.json
 COPY package*.json ./
