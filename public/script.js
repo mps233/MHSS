@@ -561,38 +561,19 @@ var incompleteRefreshInterval = null;
 
 // 计算每页应该显示多少个卡片
 function calculateItemsPerPage() {
-  // 获取实际的容器元素来计算
-  const container = document.querySelector('.movie-grid');
-  if (!container) {
-    return 12; // 如果容器还不存在，使用默认值
-  }
-  
-  // 获取容器的实际宽度
-  const containerWidth = container.clientWidth;
-  if (containerWidth === 0) {
-    return 12; // 容器还未渲染，使用默认值
-  }
-  
-  // 从 CSS 中获取 gap 值
-  const computedStyle = window.getComputedStyle(container);
-  const gap = parseFloat(computedStyle.gap) || 20;
-  
   // 根据屏幕宽度确定每行数量和显示行数
   const width = window.innerWidth;
   let itemsPerRow;
   let rows; // 显示多少排
   
-  if (width >= 1200) {
-    // 桌面端：自动计算
-    const minCardWidth = 180;
-    const margin = 20;
-    itemsPerRow = Math.floor((containerWidth - margin) / (minCardWidth + gap));
-    itemsPerRow = Math.max(2, Math.min(8, itemsPerRow));
+  if (width > 1024) {
+    // 桌面端：固定6列
+    itemsPerRow = 6;
     rows = 2;
-  } else if (width >= 768) {
-    // 平板：固定3列
-    itemsPerRow = 3;
-    rows = 3;
+  } else if (width > 768) {
+    // 平板：固定5列
+    itemsPerRow = 5;
+    rows = 2;
   } else {
     // 手机：固定3列
     itemsPerRow = 3;
@@ -602,7 +583,7 @@ function calculateItemsPerPage() {
   // 总数 = 每行数量 × 行数
   const total = itemsPerRow * rows;
   
-  console.log(`📊 热门内容 - 屏幕: ${width}px, 容器: ${containerWidth}px, 每行: ${itemsPerRow} 个, ${rows} 排, 共: ${total} 个`);
+  console.log(`📊 热门内容 - 屏幕: ${width}px, 每行: ${itemsPerRow} 个, ${rows} 排, 共: ${total} 个`);
   
   return total;
 }
@@ -896,51 +877,33 @@ async function loadIncompleteSubscriptions(forceRefresh = false) {
 
 // 计算未完成订阅每页应该显示多少个
 function calculateIncompleteItemsPerPage() {
-  const container = document.querySelector('.incomplete-list');
-  if (!container) {
-    console.log('⚠️  容器不存在，使用默认值 20');
-    return 20; // 默认值
-  }
-  
-  // 等待容器渲染完成
-  const containerWidth = container.clientWidth;
-  if (containerWidth === 0) {
-    console.log('⚠️  容器宽度为 0，使用默认值 20');
-    return 20; // 容器还未渲染，使用默认值
-  }
-  
-  const computedStyle = window.getComputedStyle(container);
-  const gap = parseFloat(computedStyle.gap) || 16;
-  
-  // 根据屏幕宽度确定卡片最小宽度和显示行数
+  // 根据屏幕宽度确定每行数量和显示行数
   const width = window.innerWidth;
-  let minCardWidth;
+  let itemsPerRow;
   let rows; // 显示多少排
   
-  if (width >= 1200) {
-    minCardWidth = 180;
-    rows = 2; // 桌面端显示2排
-  } else if (width >= 768) {
-    minCardWidth = 160;
-    rows = 3; // 平板显示3排
-  } else if (width >= 480) {
-    minCardWidth = 140;
-    rows = 4; // 大手机显示4排
+  if (width > 1200) {
+    // 桌面端：固定6列
+    itemsPerRow = 6;
+    rows = 2;
+  } else if (width > 768) {
+    // 平板：固定5列
+    itemsPerRow = 5;
+    rows = 2;
+  } else if (width > 480) {
+    // 大手机：固定3列
+    itemsPerRow = 3;
+    rows = 4;
   } else {
-    minCardWidth = 120;
-    rows = 5; // 小手机显示5排
+    // 小手机：固定3列
+    itemsPerRow = 3;
+    rows = 5;
   }
   
-  // 计算每行能放多少个（更保守的计算）
-  // 使用更大的余量确保不会换行
-  const margin = 20; // 20px 余量
-  const itemsPerRow = Math.floor((containerWidth - margin) / (minCardWidth + gap));
-  const safeItemsPerRow = Math.max(2, Math.min(10, itemsPerRow));
-  
   // 总数 = 每行数量 × 行数
-  const total = safeItemsPerRow * rows;
+  const total = itemsPerRow * rows;
   
-  console.log(`📊 未完成订阅 - 屏幕: ${width}px, 容器: ${containerWidth}px, 卡片: ${minCardWidth}px, 间距: ${gap}px, 每行: ${safeItemsPerRow} 个, ${rows} 排, 共: ${total} 个`);
+  console.log(`📊 未完成订阅 - 屏幕: ${width}px, 每行: ${itemsPerRow} 个, ${rows} 排, 共: ${total} 个`);
   
   return total;
 }

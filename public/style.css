@@ -2201,7 +2201,7 @@ h1 {
 
 .movie-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(6, 1fr); /* 固定6列 */
   gap: 1.25rem;
 }
 
@@ -2630,7 +2630,7 @@ h1 {
 
 @media (max-width: 1024px) {
   .movie-grid {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(5, 1fr); /* 固定5列 */
     gap: 1.25rem;
   }
 }
@@ -3108,7 +3108,7 @@ h1 {
 
 .incomplete-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(6, 1fr); /* 固定6列 */
   gap: 1rem;
 }
 
@@ -3322,13 +3322,13 @@ h1 {
 /* 响应式 */
 @media (max-width: 1200px) {
   .incomplete-list {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(5, 1fr); /* 固定5列 */
   }
 }
 
 @media (max-width: 768px) {
   .incomplete-list {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(3, 1fr); /* 固定3列 */
     gap: 0.75rem;
   }
   
