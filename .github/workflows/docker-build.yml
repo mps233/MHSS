@@ -12,6 +12,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # 增加超时时间到 60 分钟
     
     steps:
       - name: Checkout code
@@ -36,3 +37,7 @@ jobs:
             miaona/mhss:${{ github.sha }}
           cache-from: type=registry,ref=miaona/mhss:latest
           cache-to: type=inline
+          # 增加构建超时
+          build-args: |
+            BUILDKIT_STEP_LOG_MAX_SIZE=50000000
+            BUILDKIT_STEP_LOG_MAX_SPEED=10000000
