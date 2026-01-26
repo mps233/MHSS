@@ -5,6 +5,7 @@ node_modules/
 sessions.json
 scheduler_state.json
 hdhive_state.json
+auto_search_new.json
 
 # Python 缓存
 __pycache__/
