@@ -18,7 +18,11 @@
     // 在页面渲染前设置主题，避免闪烁
     (function() {
       const savedTheme = localStorage.getItem('theme') || 'dark';
-      document.documentElement.setAttribute('data-theme', savedTheme);
+      let actualTheme = savedTheme;
+      if (savedTheme === 'auto') {
+        actualTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', actualTheme);
     })();
   </script>
   <link rel="stylesheet" href="style.css?v=25">

@@ -78,13 +78,38 @@ let itemHeight = 0;
 // 主题切换
 const themeButtons = document.querySelectorAll('.theme-btn');
 const savedTheme = localStorage.getItem('theme') || 'dark';
-document.documentElement.setAttribute('data-theme', savedTheme);
+
+// 获取系统主题
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+// 应用主题
+function applyTheme(theme) {
+  let actualTheme = theme;
+  if (theme === 'auto') {
+    actualTheme = getSystemTheme();
+  }
+  document.documentElement.setAttribute('data-theme', actualTheme);
+}
+
+// 初始化主题
+applyTheme(savedTheme);
 
 // 更新按钮状态
 themeButtons.forEach(btn => {
-  btn.classList.remove('active'); // 先移除所有 active
+  btn.classList.remove('active');
   if (btn.dataset.theme === savedTheme) {
     btn.classList.add('active');
+  }
+});
+
+// 监听系统主题变化
+const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+mediaQuery.addEventListener('change', (e) => {
+  const currentTheme = localStorage.getItem('theme') || 'dark';
+  if (currentTheme === 'auto') {
+    applyTheme('auto');
   }
 });
 
@@ -92,7 +117,7 @@ themeButtons.forEach(btn => {
 themeButtons.forEach(btn => {
   btn.addEventListener('click', () => {
     const theme = btn.dataset.theme;
-    document.documentElement.setAttribute('data-theme', theme);
+    applyTheme(theme);
     localStorage.setItem('theme', theme);
     
     // 更新按钮状态
