@@ -1301,17 +1301,47 @@ function limitToTwoRows(container) {
 
 // 窗口大小改变时重新加载（防抖）
 let resizeTimeout;
+let lastWidth = window.innerWidth;
+let lastHeight = window.innerHeight;
+
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimeout);
   resizeTimeout = setTimeout(() => {
-    loadTrending(currentMoviePage, currentTVPage);
+    const currentWidth = window.innerWidth;
+    const currentHeight = window.innerHeight;
     
-    // 重新计算并显示未完成订阅（如果已加载）
-    if (allIncompleteSubscriptions.length > 0) {
-      incompletePerPage = calculateIncompleteItemsPerPage();
-      // 重置到第一页，避免页码超出范围
-      currentIncompletePage = 1;
-      displayIncompleteSubscriptions(1);
+    // 只有宽度变化超过阈值时才重新加载（避免移动端地址栏导致的频繁触发）
+    const widthChanged = Math.abs(currentWidth - lastWidth) > 50;
+    const heightChanged = Math.abs(currentHeight - lastHeight) > 100;
+    
+    // 移动端：只在宽度明显变化时重新加载（忽略地址栏引起的高度变化）
+    // 桌面端：宽度或高度变化都重新加载
+    const isMobile = currentWidth < 768;
+    const shouldReload = isMobile ? widthChanged : (widthChanged || heightChanged);
+    
+    if (shouldReload) {
+      lastWidth = currentWidth;
+      lastHeight = currentHeight;
+      
+      loadTrending(currentMoviePage, currentTVPage);
+      
+      // 重新计算并显示未完成订阅（如果已加载）
+      if (allIncompleteSubscriptions.length > 0) {
+        const oldPerPage = incompletePerPage;
+        incompletePerPage = calculateIncompleteItemsPerPage();
+        
+        // 只有当每页数量改变时才需要重新计算页码
+        if (oldPerPage !== incompletePerPage) {
+          const totalPages = Math.ceil(incompleteTotalCount / incompletePerPage);
+          // 如果当前页超出新的总页数，则调整到最后一页
+          if (currentIncompletePage > totalPages) {
+            currentIncompletePage = Math.max(1, totalPages);
+          }
+        }
+        
+        // 保持当前页码，不重置到第一页
+        displayIncompleteSubscriptions(currentIncompletePage);
+      }
     }
   }, 500); // 500ms 防抖
 });
