@@ -1,3 +1,5 @@
 {
-  "enabled": true
+  "enabled": true,
+  "autoDeleteCompletedMovie": true,
+  "autoDeleteCompletedTV": true
 }

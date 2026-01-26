@@ -486,6 +486,29 @@ body {
   margin-left: auto;
 }
 
+.mobile-menu-theme {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mobile-theme-switcher {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+  background: rgba(168, 85, 247, 0.05);
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(168, 85, 247, 0.1);
+}
+
+.mobile-theme-switcher .theme-btn {
+  padding: 0.5rem;
+  width: 36px;
+  height: 36px;
+  border-radius: 0.375rem;
+}
+
 .theme-btn {
   padding: 0.5rem;
   background: transparent;
@@ -2758,12 +2781,22 @@ h1 {
     font-size: 1.125rem;
   }
 
-  .nav-link {
+  .nav-link:not(#showLogBtn):not(#schedulerBtn) {
+    display: none;
+  }
+  
+  #showLogBtn,
+  #schedulerBtn {
+    padding: 0.5rem;
+  }
+  
+  #showLogBtn span:not(.nav-icon),
+  #schedulerBtn span:not(.nav-icon) {
     display: none;
   }
 
   .theme-switcher {
-    display: flex;
+    display: none !important;
   }
 
   .mobile-menu-btn {
@@ -3796,7 +3829,7 @@ h1 {
   margin-top: 0.25rem;
 }
 
-/* 开关按钮样式 */
+/* 开关按钮样式 - 现代扁平风格 */
 .switch {
   position: relative;
   display: inline-block;
@@ -3818,9 +3851,33 @@ h1 {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #ccc;
-  transition: 0.3s;
+  background-color: rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
   border-radius: 24px;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+}
+
+/* 浅色模式下的开关 */
+[data-theme="light"] .slider {
+  background-color: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .slider:hover {
+  background-color: rgba(0, 0, 0, 0.12);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="auto"] .slider {
+    background-color: rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.15);
+  }
+  
+  [data-theme="auto"] .slider:hover {
+    background-color: rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 0, 0, 0.2);
+  }
 }
 
 .slider:before {
@@ -3828,23 +3885,34 @@ h1 {
   content: "";
   height: 18px;
   width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: 0.3s;
+  left: 2.5px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #ffffff;
+  transition: all 0.3s ease;
   border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 input:checked + .slider {
-  background-color: var(--purple-500);
+  background-color: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
 }
 
 input:checked + .slider:before {
-  transform: translateX(20px);
+  transform: translate(20px, -50%);
+  background: var(--purple-500);
+  box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
 }
 
 .slider:hover {
-  opacity: 0.9;
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+input:checked + .slider:hover {
+  background-color: rgba(139, 92, 246, 0.3);
+  border-color: rgba(139, 92, 246, 0.5);
 }
 
 /* 定时任务面板 - 紧凑卡片样式 */
@@ -3877,13 +3945,12 @@ input:checked + .slider:before {
 .task-icon {
   width: 36px;
   height: 36px;
-  background: linear-gradient(135deg, var(--purple-500), var(--purple-600));
-  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.25rem;
   flex-shrink: 0;
+  color: var(--purple-500);
 }
 
 .task-info {
@@ -3935,6 +4002,9 @@ input:checked + .slider:before {
   font-weight: 500;
   font-size: 0.75rem;
   white-space: nowrap;
+  min-width: 70px;
+  display: inline-block;
+  text-align: center;
 }
 
 .status-badge.active {
@@ -4002,6 +4072,131 @@ input:checked + .slider:before {
   flex-shrink: 0;
 }
 
+/* 任务子选项样式 */
+.task-sub-option {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.task-sub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.task-sub-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-sub-title {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.task-sub-desc {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.switch-small {
+  transform: scale(0.85);
+}
+
+.task-sub-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--purple-500);
+}
+
+.task-sub-action:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.task-sub-action:active {
+  transform: translateY(0);
+}
+
+.task-sub-action svg {
+  flex-shrink: 0;
+}
+
+/* 删除开关样式 */
+.delete-switches {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.delete-switch-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.delete-switch-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.status-badge.status-badge-small {
+  font-size: 0.6875rem;
+  padding: 0.1875rem 0.5rem;
+  width: 64px !important;
+  display: inline-block;
+  text-align: center;
+}
+
+.delete-actions-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.delete-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.delete-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.delete-row .task-run-btn {
+  flex: 0 0 auto;
+  min-width: 120px;
+}
+
+.delete-row .delete-switch-item {
+  flex: 0 0 auto;
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
   .task-header {
@@ -4026,6 +4221,25 @@ input:checked + .slider:before {
   .task-stop-btn {
     flex: 1;
     justify-content: center;
+  }
+  
+  /* 删除订阅任务保持每行一个按钮+开关的布局 */
+  .task-status-horizontal {
+    display: block;
+  }
+  
+  .delete-row {
+    justify-content: flex-start;
+  }
+  
+  .delete-row .task-run-btn {
+    flex: 0 0 auto;
+    min-width: 120px;
+    justify-content: flex-start;
+  }
+  
+  .delete-row .delete-switch-item {
+    margin-left: auto;
   }
 }
 

@@ -233,6 +233,11 @@ const TRENDS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 const AUTO_SEARCH_NEW_FILE = 'auto_search_new.json';
 let autoSearchNewEnabled = false;
 
+// 自动删除已完成订阅设置
+let autoDeleteCompletedMovieEnabled = false;
+let autoDeleteCompletedTVEnabled = false;
+let autoDeleteCompletedInterval = null;
+
 // 新订阅自动查找日志
 let autoSearchNewLogs = [];
 const MAX_AUTO_SEARCH_LOGS = 100;
@@ -556,6 +561,258 @@ function stopNewSubscriptionCheck() {
   console.log('🔍 新订阅检测已停止');
 }
 
+// 删除已完成的电影订阅
+async function deleteCompletedMovieSubscriptions() {
+  if (!process.env.MEDIAHELPER_URL || !process.env.MEDIAHELPER_USERNAME) {
+    return;
+  }
+  
+  if (!process.env.EMBY_URL || !process.env.EMBY_API_KEY) {
+    return;
+  }
+  
+  try {
+    console.log('\n🗑️  开始检查并删除已完成的电影订阅...');
+    
+    // 获取所有订阅
+    const mhData = await getMediaHelperSubscriptions(true); // 强制刷新
+    if (!mhData || !mhData.subscriptions) {
+      return;
+    }
+    
+    // 筛选出电影订阅
+    const movieSubscriptions = mhData.subscriptions.filter(sub => {
+      const params = sub.params || {};
+      return params.media_type === 'movie';
+    });
+    
+    console.log(`   📊 共有 ${movieSubscriptions.length} 个电影订阅`);
+    
+    let deletedCount = 0;
+    const token = await getMediaHelperToken();
+    
+    for (const sub of movieSubscriptions) {
+      const params = sub.params || {};
+      const tmdbId = params.tmdb_id;
+      const title = params.title || params.custom_name || sub.name;
+      
+      if (!tmdbId) continue;
+      
+      // 检查是否已入库
+      try {
+        const embyResponse = await fetch(
+          `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds&AnyProviderIdEquals=tmdb.${tmdbId}`
+        );
+        
+        if (!embyResponse.ok) continue;
+        
+        const embyData = await embyResponse.json();
+        const hasMovie = embyData.Items && embyData.Items.length > 0;
+        
+        if (hasMovie) {
+          console.log(`   ✅ 电影已入库，删除订阅: ${title}`);
+          
+          // 调用 MediaHelper API 删除订阅
+          const deleteResponse = await fetch(
+            `${process.env.MEDIAHELPER_URL}/api/v1/subscription/${sub.uuid}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json'
+              }
+            }
+          );
+          
+          if (deleteResponse.ok) {
+            console.log(`   🗑️  删除成功: ${title}`);
+            deletedCount++;
+            
+            // 清除缓存
+            const cacheKey = `movie_${tmdbId}`;
+            embyLibraryCache.delete(cacheKey);
+          } else {
+            const errorText = await deleteResponse.text();
+            console.error(`   ❌ 删除失败: ${title}, 错误: ${errorText}`);
+          }
+          
+          // 避免请求过快
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch (error) {
+        console.error(`   ❌ 检查电影失败: ${title}, 错误: ${error.message}`);
+      }
+    }
+    
+    console.log(`\n🎉 删除完成，共删除 ${deletedCount} 个已完成的电影订阅\n`);
+    
+    // 清除订阅缓存
+    if (deletedCount > 0) {
+      subscriptionsCache = null;
+      subscriptionsCacheExpiry = 0;
+      incompleteSubscriptionsPageCache = {};
+      allSubscriptionsCache = null;
+      allSubscriptionsCacheExpiry = 0;
+    }
+  } catch (error) {
+    console.error('删除已完成电影订阅失败:', error);
+  }
+}
+
+// 删除已完成的电视剧订阅
+async function deleteCompletedTVSubscriptions() {
+  if (!process.env.MEDIAHELPER_URL || !process.env.MEDIAHELPER_USERNAME) {
+    return;
+  }
+  
+  try {
+    console.log('\n🗑️  开始检查并删除已完成的电视剧订阅...');
+    
+    // 获取所有订阅
+    const mhData = await getMediaHelperSubscriptions(true); // 强制刷新
+    if (!mhData || !mhData.subscriptions) {
+      return;
+    }
+    
+    // 筛选出电视剧订阅
+    const tvSubscriptions = mhData.subscriptions.filter(sub => {
+      const params = sub.params || {};
+      return params.media_type === 'tv';
+    });
+    
+    console.log(`   📊 共有 ${tvSubscriptions.length} 个电视剧订阅`);
+    
+    let deletedCount = 0;
+    const token = await getMediaHelperToken();
+    
+    for (const sub of tvSubscriptions) {
+      const params = sub.params || {};
+      const tmdbId = params.tmdb_id;
+      const title = params.title || params.custom_name || sub.name;
+      
+      if (!tmdbId) continue;
+      
+      // 从 MediaHelper 的 episodes 数据中获取集数信息
+      let subscribedEpisodes = 0;
+      let tmdbTotalEpisodes = 0;
+      
+      if (sub.episodes && Array.isArray(sub.episodes) && sub.episodes.length > 0) {
+        const episodeData = sub.episodes[0];
+        
+        // 获取已订阅的集数
+        if (episodeData.episodes_arr) {
+          Object.values(episodeData.episodes_arr).forEach(seasonEpisodes => {
+            subscribedEpisodes += seasonEpisodes.length;
+          });
+        }
+        
+        // 获取总集数
+        if (episodeData.episodes_count) {
+          Object.values(episodeData.episodes_count).forEach(seasonData => {
+            if (seasonData.count) {
+              tmdbTotalEpisodes += seasonData.count;
+            }
+          });
+        }
+      }
+      
+      // 如果已订阅所有集数，删除订阅
+      if (tmdbTotalEpisodes > 0 && subscribedEpisodes >= tmdbTotalEpisodes) {
+        console.log(`   ✅ 电视剧已完成 (${subscribedEpisodes}/${tmdbTotalEpisodes} 集)，删除订阅: ${title}`);
+        
+        try {
+          // 调用 MediaHelper API 删除订阅
+          const deleteResponse = await fetch(
+            `${process.env.MEDIAHELPER_URL}/api/v1/subscription/${sub.uuid}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json'
+              }
+            }
+          );
+          
+          if (deleteResponse.ok) {
+            console.log(`   🗑️  删除成功: ${title}`);
+            deletedCount++;
+            
+            // 清除缓存
+            const cacheKey = `tv_${tmdbId}`;
+            embyLibraryCache.delete(cacheKey);
+          } else {
+            const errorText = await deleteResponse.text();
+            console.error(`   ❌ 删除失败: ${title}, 错误: ${errorText}`);
+          }
+          
+          // 避免请求过快
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (error) {
+          console.error(`   ❌ 删除订阅失败: ${title}, 错误: ${error.message}`);
+        }
+      }
+    }
+    
+    console.log(`\n🎉 删除完成，共删除 ${deletedCount} 个已完成的电视剧订阅\n`);
+    
+    // 清除订阅缓存
+    if (deletedCount > 0) {
+      subscriptionsCache = null;
+      subscriptionsCacheExpiry = 0;
+      incompleteSubscriptionsPageCache = {};
+      allSubscriptionsCache = null;
+      allSubscriptionsCacheExpiry = 0;
+    }
+  } catch (error) {
+    console.error('删除已完成电视剧订阅失败:', error);
+  }
+}
+
+// 启动自动删除已完成订阅的定时任务
+function startAutoDeleteCompleted() {
+  if (autoDeleteCompletedInterval) {
+    clearInterval(autoDeleteCompletedInterval);
+  }
+  
+  // 每天凌晨3点执行
+  const scheduleDaily = () => {
+    const now = new Date();
+    const next = new Date();
+    next.setHours(3, 0, 0, 0);
+    
+    // 如果今天3点已过，设置为明天3点
+    if (now >= next) {
+      next.setDate(next.getDate() + 1);
+    }
+    
+    const delay = next.getTime() - now.getTime();
+    console.log(`🗑️  自动删除已完成订阅已启动，下次运行: ${next.toLocaleString('zh-CN')}`);
+    
+    setTimeout(async () => {
+      // 根据开关状态决定删除哪些
+      if (autoDeleteCompletedMovieEnabled) {
+        await deleteCompletedMovieSubscriptions();
+      }
+      if (autoDeleteCompletedTVEnabled) {
+        await deleteCompletedTVSubscriptions();
+      }
+      // 执行后重新调度下一次
+      scheduleDaily();
+    }, delay);
+  };
+  
+  scheduleDaily();
+}
+
+// 停止自动删除已完成订阅的定时任务
+function stopAutoDeleteCompleted() {
+  if (autoDeleteCompletedInterval) {
+    clearTimeout(autoDeleteCompletedInterval);
+    autoDeleteCompletedInterval = null;
+  }
+  console.log('🗑️  自动删除已完成订阅已停止');
+}
+
 // 加载新订阅自动查找设置
 function loadAutoSearchNewSetting() {
   try {
@@ -563,11 +820,20 @@ function loadAutoSearchNewSetting() {
       const data = fs.readFileSync(AUTO_SEARCH_NEW_FILE, 'utf8');
       const saved = JSON.parse(data);
       autoSearchNewEnabled = saved.enabled || false;
+      autoDeleteCompletedMovieEnabled = saved.autoDeleteCompletedMovie || false;
+      autoDeleteCompletedTVEnabled = saved.autoDeleteCompletedTV || false;
       console.log(`📋 新订阅自动查找设置已加载: ${autoSearchNewEnabled ? '已启用' : '未启用'}`);
+      console.log(`📋 自动删除已完成电影设置已加载: ${autoDeleteCompletedMovieEnabled ? '已启用' : '未启用'}`);
+      console.log(`📋 自动删除已完成电视剧设置已加载: ${autoDeleteCompletedTVEnabled ? '已启用' : '未启用'}`);
       
       // 如果启用，启动检测
       if (autoSearchNewEnabled && HDHIVE_ENABLED) {
         startNewSubscriptionCheck();
+      }
+      
+      // 如果启用，启动自动删除定时任务
+      if (autoDeleteCompletedMovieEnabled || autoDeleteCompletedTVEnabled) {
+        startAutoDeleteCompleted();
       }
     }
   } catch (error) {
@@ -578,7 +844,9 @@ function loadAutoSearchNewSetting() {
 function saveAutoSearchNewSetting() {
   try {
     fs.writeFileSync(AUTO_SEARCH_NEW_FILE, JSON.stringify({
-      enabled: autoSearchNewEnabled
+      enabled: autoSearchNewEnabled,
+      autoDeleteCompletedMovie: autoDeleteCompletedMovieEnabled,
+      autoDeleteCompletedTV: autoDeleteCompletedTVEnabled
     }, null, 2));
     
     // 根据状态启动或停止检测
@@ -586,6 +854,13 @@ function saveAutoSearchNewSetting() {
       startNewSubscriptionCheck();
     } else {
       stopNewSubscriptionCheck();
+    }
+    
+    // 根据状态启动或停止自动删除
+    if (autoDeleteCompletedMovieEnabled || autoDeleteCompletedTVEnabled) {
+      startAutoDeleteCompleted();
+    } else {
+      stopAutoDeleteCompleted();
     }
   } catch (error) {
     console.error('保存新订阅自动查找设置失败:', error);
@@ -2869,15 +3144,36 @@ app.post('/api/hdhive/batch-search/stop', requireAuth, (req, res) => {
 
 // 新订阅自动查找 API
 app.get('/api/settings/auto-search-new', requireAuth, (req, res) => {
-  res.json({ enabled: autoSearchNewEnabled });
+  res.json({ 
+    enabled: autoSearchNewEnabled,
+    autoDeleteCompletedMovie: autoDeleteCompletedMovieEnabled,
+    autoDeleteCompletedTV: autoDeleteCompletedTVEnabled
+  });
 });
 
 app.post('/api/settings/auto-search-new', requireAuth, (req, res) => {
   try {
-    const { enabled } = req.body;
-    autoSearchNewEnabled = enabled;
+    const { enabled, autoDeleteCompletedMovie, autoDeleteCompletedTV } = req.body;
+    
+    if (enabled !== undefined) {
+      autoSearchNewEnabled = enabled;
+    }
+    
+    if (autoDeleteCompletedMovie !== undefined) {
+      autoDeleteCompletedMovieEnabled = autoDeleteCompletedMovie;
+    }
+    
+    if (autoDeleteCompletedTV !== undefined) {
+      autoDeleteCompletedTVEnabled = autoDeleteCompletedTV;
+    }
+    
     saveAutoSearchNewSetting();
-    res.json({ success: true, enabled: autoSearchNewEnabled });
+    res.json({ 
+      success: true, 
+      enabled: autoSearchNewEnabled,
+      autoDeleteCompletedMovie: autoDeleteCompletedMovieEnabled,
+      autoDeleteCompletedTV: autoDeleteCompletedTVEnabled
+    });
   } catch (error) {
     console.error('切换新订阅自动查找失败:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -2887,6 +3183,40 @@ app.post('/api/settings/auto-search-new', requireAuth, (req, res) => {
 // 获取新订阅自动查找日志
 app.get('/api/settings/auto-search-new/logs', requireAuth, (req, res) => {
   res.json({ logs: autoSearchNewLogs });
+});
+
+// 手动触发删除已完成电影订阅
+app.post('/api/settings/auto-delete-completed/trigger', requireAuth, async (req, res) => {
+  try {
+    console.log('🗑️  手动触发删除已完成电影订阅...');
+    
+    // 异步执行，立即返回
+    deleteCompletedMovieSubscriptions().catch(err => {
+      console.error('删除已完成电影订阅失败:', err);
+    });
+    
+    res.json({ success: true, message: '删除任务已启动' });
+  } catch (error) {
+    console.error('触发删除失败:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 手动触发删除已完成电视剧订阅
+app.post('/api/settings/auto-delete-completed-tv/trigger', requireAuth, async (req, res) => {
+  try {
+    console.log('🗑️  手动触发删除已完成电视剧订阅...');
+    
+    // 异步执行，立即返回
+    deleteCompletedTVSubscriptions().catch(err => {
+      console.error('删除已完成电视剧订阅失败:', err);
+    });
+    
+    res.json({ success: true, message: '删除任务已启动' });
+  } catch (error) {
+    console.error('触发删除失败:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // 获取监控任务状态

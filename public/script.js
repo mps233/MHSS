@@ -1794,8 +1794,8 @@ if (mobileMenuBtn && mobileMenu) {
     mobileEmbyLink.href = embyLink.href;
   }
 
-  // 点击菜单项后关闭菜单
-  const menuItems = mobileMenu.querySelectorAll('.mobile-menu-item:not(.mobile-menu-dropdown)');
+  // 点击菜单项后关闭菜单（排除主题切换器）
+  const menuItems = mobileMenu.querySelectorAll('.mobile-menu-item:not(.mobile-menu-dropdown):not(.mobile-menu-theme)');
   menuItems.forEach(item => {
     item.addEventListener('click', () => {
       setTimeout(() => {
@@ -2361,7 +2361,7 @@ async function loadSchedulerStatus() {
       statusBadge.textContent = '✓ 已启用';
       statusBadge.className = 'status-badge active';
     } else {
-      statusBadge.textContent = '未启用';
+      statusBadge.textContent = '✕ 未启用';
       statusBadge.className = 'status-badge inactive';
     }
     
@@ -2389,11 +2389,27 @@ async function loadSchedulerStatus() {
     
     const autoSearchNewToggle = document.getElementById('autoSearchNewToggle');
     const autoSearchNewBadge = document.getElementById('autoSearchNewBadge');
+    const autoDeleteMovieToggle = document.getElementById('autoDeleteMovieToggle');
+    const autoDeleteMovieBadge = document.getElementById('autoDeleteMovieBadge');
+    const autoDeleteTVToggle = document.getElementById('autoDeleteTVToggle');
+    const autoDeleteTVBadge = document.getElementById('autoDeleteTVBadge');
     
     if (autoSearchNewToggle && autoSearchNewBadge) {
       autoSearchNewToggle.checked = autoSearchNewData.enabled;
-      autoSearchNewBadge.textContent = autoSearchNewData.enabled ? '✓ 已启用' : '未启用';
+      autoSearchNewBadge.textContent = autoSearchNewData.enabled ? '✓ 已启用' : '✕ 未启用';
       autoSearchNewBadge.className = autoSearchNewData.enabled ? 'status-badge active' : 'status-badge inactive';
+    }
+    
+    if (autoDeleteMovieToggle && autoDeleteMovieBadge) {
+      autoDeleteMovieToggle.checked = autoSearchNewData.autoDeleteCompletedMovie || false;
+      autoDeleteMovieBadge.textContent = autoSearchNewData.autoDeleteCompletedMovie ? '✓ 已启用' : '✕ 未启用';
+      autoDeleteMovieBadge.className = autoSearchNewData.autoDeleteCompletedMovie ? 'status-badge active' : 'status-badge inactive';
+    }
+    
+    if (autoDeleteTVToggle && autoDeleteTVBadge) {
+      autoDeleteTVToggle.checked = autoSearchNewData.autoDeleteCompletedTV || false;
+      autoDeleteTVBadge.textContent = autoSearchNewData.autoDeleteCompletedTV ? '✓ 已启用' : '✕ 未启用';
+      autoDeleteTVBadge.className = autoSearchNewData.autoDeleteCompletedTV ? 'status-badge active' : 'status-badge inactive';
     }
   } catch (error) {
     console.error('加载定时任务状态失败:', error);
@@ -2444,9 +2460,10 @@ async function toggleAutoSearchNew(enabled) {
       // 更新状态显示
       const badge = document.getElementById('autoSearchNewBadge');
       if (badge) {
-        badge.textContent = enabled ? '✓ 已启用' : '未启用';
+        badge.textContent = enabled ? '✓ 已启用' : '✕ 未启用';
         badge.className = enabled ? 'status-badge active' : 'status-badge inactive';
       }
+      
       console.log(`新订阅自动查找已${enabled ? '启用' : '禁用'}`);
     } else {
       console.error('操作失败:', data.error);
@@ -2457,6 +2474,122 @@ async function toggleAutoSearchNew(enabled) {
     console.error('切换新订阅自动查找失败:', error);
     // 恢复开关状态
     document.getElementById('autoSearchNewToggle').checked = !enabled;
+  }
+}
+
+// 切换自动删除已完成电影
+async function toggleAutoDeleteMovie(enabled) {
+  try {
+    const response = await fetchWithAuth('/api/settings/auto-search-new', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ autoDeleteCompletedMovie: enabled })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // 更新状态显示
+      const badge = document.getElementById('autoDeleteMovieBadge');
+      if (badge) {
+        badge.textContent = enabled ? '✓ 已启用' : '✕ 未启用';
+        badge.className = enabled ? 'status-badge active' : 'status-badge inactive';
+      }
+      
+      console.log(`自动删除已完成电影已${enabled ? '启用' : '禁用'}`);
+    } else {
+      console.error('操作失败:', data.error);
+      // 恢复开关状态
+      document.getElementById('autoDeleteMovieToggle').checked = !enabled;
+    }
+  } catch (error) {
+    console.error('切换自动删除已完成电影失败:', error);
+    // 恢复开关状态
+    document.getElementById('autoDeleteMovieToggle').checked = !enabled;
+  }
+}
+
+// 切换自动删除已完成电视剧
+async function toggleAutoDeleteTV(enabled) {
+  try {
+    const response = await fetchWithAuth('/api/settings/auto-search-new', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ autoDeleteCompletedTV: enabled })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // 更新状态显示
+      const badge = document.getElementById('autoDeleteTVBadge');
+      if (badge) {
+        badge.textContent = enabled ? '✓ 已启用' : '✕ 未启用';
+        badge.className = enabled ? 'status-badge active' : 'status-badge inactive';
+      }
+      
+      console.log(`自动删除已完成电视剧已${enabled ? '启用' : '禁用'}`);
+    } else {
+      console.error('操作失败:', data.error);
+      // 恢复开关状态
+      document.getElementById('autoDeleteTVToggle').checked = !enabled;
+    }
+  } catch (error) {
+    console.error('切换自动删除已完成电视剧失败:', error);
+    // 恢复开关状态
+    document.getElementById('autoDeleteTVToggle').checked = !enabled;
+  }
+}
+
+// 手动触发删除已完成电影
+async function triggerDeleteCompleted() {
+  if (!confirm('确定要立即删除所有已入库的电影订阅吗？')) {
+    return;
+  }
+  
+  try {
+    const response = await fetchWithAuth('/api/settings/auto-delete-completed/trigger', {
+      method: 'POST'
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      alert('删除任务已启动，请查看服务器日志');
+    } else {
+      alert('操作失败: ' + (data.error || '未知错误'));
+    }
+  } catch (error) {
+    console.error('触发删除失败:', error);
+    alert('操作失败: ' + error.message);
+  }
+}
+
+// 手动触发删除已完成电视剧
+async function triggerDeleteCompletedTV() {
+  if (!confirm('确定要立即删除所有已订阅完所有集数的电视剧订阅吗？')) {
+    return;
+  }
+  
+  try {
+    const response = await fetchWithAuth('/api/settings/auto-delete-completed-tv/trigger', {
+      method: 'POST'
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      alert('删除任务已启动，请查看服务器日志');
+    } else {
+      alert('操作失败: ' + (data.error || '未知错误'));
+    }
+  } catch (error) {
+    console.error('触发删除失败:', error);
+    alert('操作失败: ' + error.message);
   }
 }
 
