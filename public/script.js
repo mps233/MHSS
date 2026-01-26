@@ -553,8 +553,9 @@ let currentTVPage = 1;
 let totalMoviePages = 1;
 let totalTVPages = 1;
 
-// 未完成订阅状态
-var allIncompleteSubscriptions = [];
+// 所有订阅状态
+var allIncompleteSubscriptions = []; // 所有订阅（从服务器获取）
+var incompleteTotalCount = 0; // 总数
 var currentIncompletePage = 1;
 var incompletePerPage = 20; // 这个值会在首次加载时动态计算
 var incompleteRefreshInterval = null;
@@ -622,214 +623,49 @@ async function loadTrending(moviePage = 1, tvPage = 1) {
 
 // 完全刷新未完成订阅（清除缓存，重新获取所有订阅）
 async function fullRefreshIncompleteSubscriptions() {
-  console.log('🔄 完全刷新未完成订阅（重新获取所有订阅）...');
-  // 清除缓存
-  localStorage.removeItem('incompleteSubscriptions');
-  localStorage.removeItem('incompleteSubscriptionsTime');
   // 强制从服务器刷新
   await loadIncompleteSubscriptions(true);
 }
 
-// 强制刷新未完成订阅（轻量级更新）
-async function refreshIncompleteSubscriptions() {
-  console.log('🔄 轻量级刷新未完成订阅...');
-  
-  const container = document.getElementById('incompleteSubscriptions');
-  
-  // 先尝试从 localStorage 加载数据
-  if (allIncompleteSubscriptions.length === 0) {
-    const cachedData = localStorage.getItem('incompleteSubscriptions');
-    if (cachedData) {
-      try {
-        const data = JSON.parse(cachedData);
-        allIncompleteSubscriptions = data.subscriptions || [];
-        console.log(`📦 从缓存恢复 ${allIncompleteSubscriptions.length} 个订阅`);
-      } catch (e) {
-        console.error('解析缓存失败:', e);
-      }
-    }
-  }
-  
-  // 如果还是没有数据，执行完整加载
-  if (allIncompleteSubscriptions.length === 0) {
-    console.log('⚠️  没有缓存数据，执行完整加载...');
-    localStorage.removeItem('incompleteSubscriptions');
-    localStorage.removeItem('incompleteSubscriptionsTime');
-    await loadIncompleteSubscriptions(true);
-    return;
-  }
-  
-  try {
-    // 发送当前订阅列表，只检查集数变化
-    const response = await fetchWithAuth('/api/incomplete-subscriptions/update', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        subscriptions: allIncompleteSubscriptions
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error('更新失败');
-    }
-    
-    const { newSubscriptions, updates, removed } = await response.json();
-    
-    console.log(`📊 收到更新: ${newSubscriptions.length} 个新订阅, ${updates.length} 个变化, ${removed.length} 个移除`);
-    
-    // 应用更新
-    let hasChanges = false;
-    
-    // 添加新订阅（插入到最前面）
-    if (newSubscriptions.length > 0) {
-      allIncompleteSubscriptions = [...newSubscriptions, ...allIncompleteSubscriptions];
-      hasChanges = true;
-      console.log(`✅ 添加了 ${newSubscriptions.length} 个新订阅`);
-    }
-    
-    // 更新集数
-    updates.forEach(update => {
-      const sub = allIncompleteSubscriptions.find(s => s.id === update.id);
-      if (sub) {
-        sub.subscribedEpisodes = update.subscribedEpisodes;
-        sub.missingEpisodes = update.missingEpisodes;
-        sub.progress = update.progress;
-        hasChanges = true;
-      }
-    });
-    
-    // 移除已完成或已删除的订阅
-    if (removed.length > 0) {
-      allIncompleteSubscriptions = allIncompleteSubscriptions.filter(
-        sub => !removed.includes(sub.id)
-      );
-      hasChanges = true;
-    }
-    
-    if (hasChanges) {
-      // 保存更新后的数据到缓存
-      const cacheData = {
-        subscriptions: allIncompleteSubscriptions,
-        total: allIncompleteSubscriptions.length,
-        cachedAt: Date.now()
-      };
-      localStorage.setItem('incompleteSubscriptions', JSON.stringify(cacheData));
-      localStorage.setItem('incompleteSubscriptionsTime', Date.now().toString());
-      
-      // 重新显示
-      displayIncompleteSubscriptions(currentIncompletePage);
-      console.log('✅ 更新完成并已保存');
-    } else {
-      console.log('✅ 没有变化');
-    }
-  } catch (error) {
-    console.error('❌ 轻量级刷新失败:', error);
-    alert('刷新失败: ' + error.message);
-  }
-}
-
-// 加载未完成订阅
+// 加载所有订阅
 async function loadIncompleteSubscriptions(forceRefresh = false) {
   const container = document.getElementById('incompleteSubscriptions');
   
-  // 显示加载状态
+  // 显示骨架屏
   if (!forceRefresh) {
-    container.innerHTML = `
-      <div class="loading-spinner">
-        <div class="spinner"></div>
-        <p>正在加载未完成订阅...</p>
+    const skeletonCount = calculateIncompleteItemsPerPage();
+    const skeletonHTML = Array(skeletonCount).fill(0).map(() => `
+      <div class="subscription-skeleton">
+        <div class="skeleton-subscription-poster"></div>
+        <div class="skeleton-subscription-info">
+          <div class="skeleton-subscription-title"></div>
+          <div class="skeleton-subscription-title-2"></div>
+          <div class="skeleton-subscription-stat"></div>
+          <div class="skeleton-subscription-stat"></div>
+          <div class="skeleton-subscription-stat"></div>
+          <div class="skeleton-subscription-progress"></div>
+          <div class="skeleton-subscription-status"></div>
+        </div>
       </div>
-    `;
+    `).join('');
+    container.innerHTML = skeletonHTML;
   }
   
   try {
-    // 从 localStorage 读取缓存
-    const cachedData = localStorage.getItem('incompleteSubscriptions');
-    const cachedTime = localStorage.getItem('incompleteSubscriptionsTime');
-    const cacheExpiry = 7 * 24 * 60 * 60 * 1000; // 7天缓存
+    console.log('🌐 从服务器获取数据（首次只获取第一页）...');
     
-    console.log('🔍 检查缓存:', {
-      hasCachedData: !!cachedData,
-      hasCachedTime: !!cachedTime,
-      cacheAge: cachedTime ? Math.round((Date.now() - parseInt(cachedTime)) / 1000) + '秒' : 'N/A',
-      forceRefresh: forceRefresh
-    });
-    
-    // 如果有缓存且未过期，先显示缓存数据
-    if (!forceRefresh && cachedData && cachedTime && (Date.now() - parseInt(cachedTime)) < cacheExpiry) {
-      console.log('📦 使用缓存的未完成订阅数据');
-      try {
-        const data = JSON.parse(cachedData);
-        allIncompleteSubscriptions = data.subscriptions || [];
-        
-        if (allIncompleteSubscriptions.length === 0) {
-          container.innerHTML = `
-            <div class="incomplete-empty">
-              <svg class="incomplete-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 11l3 3L22 4"></path>
-                <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
-              </svg>
-              <p>太棒了！所有订阅都已完成 🎉</p>
-            </div>
-          `;
-        } else {
-          console.log(`📊 显示 ${allIncompleteSubscriptions.length} 个未完成订阅`);
-          // 立即计算每页显示数量并显示
-          incompletePerPage = calculateIncompleteItemsPerPage();
-          console.log(`✅ 计算得到 incompletePerPage = ${incompletePerPage}`);
-          displayIncompleteSubscriptions(1);
-        }
-        
-        // 设置定期轻量级刷新（每5分钟）
-        if (incompleteRefreshInterval) {
-          clearInterval(incompleteRefreshInterval);
-        }
-        incompleteRefreshInterval = setInterval(() => {
-          console.log('🔄 定期轻量级刷新未完成订阅...');
-          refreshIncompleteSubscriptions();
-        }, 5 * 60 * 1000);
-        return;
-      } catch (parseError) {
-        console.error('解析缓存数据失败:', parseError);
-        // 清除损坏的缓存
-        localStorage.removeItem('incompleteSubscriptions');
-        localStorage.removeItem('incompleteSubscriptionsTime');
-      }
+    // 首次加载：先获取总数
+    const countUrl = forceRefresh ? '/api/incomplete-subscriptions?refresh=true&only_count=true' : '/api/incomplete-subscriptions?only_count=true';
+    const countResponse = await fetchWithAuth(countUrl);
+    if (!countResponse.ok) {
+      throw new Error(`服务器错误 ${countResponse.status}: ${countResponse.statusText}`);
     }
+    const countData = await countResponse.json();
+    const totalCount = countData.total || 0;
     
-    console.log('🌐 从服务器获取数据...');
-    const url = forceRefresh ? '/api/incomplete-subscriptions?refresh=true' : '/api/incomplete-subscriptions';
+    console.log(`📊 总共有 ${totalCount} 个订阅`);
     
-    let response;
-    try {
-      response = await fetchWithAuth(url);
-    } catch (fetchError) {
-      console.error('网络请求失败:', fetchError);
-      throw new Error('网络连接失败，请检查网络设置');
-    }
-    
-    if (!response.ok) {
-      throw new Error(`服务器错误 ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    allIncompleteSubscriptions = data.subscriptions || [];
-    
-    console.log(`✅ 从服务器获取到 ${allIncompleteSubscriptions.length} 个未完成订阅`);
-    
-    // 保存到 localStorage
-    try {
-      localStorage.setItem('incompleteSubscriptions', JSON.stringify(data));
-      localStorage.setItem('incompleteSubscriptionsTime', Date.now().toString());
-      console.log('💾 数据已保存到缓存');
-    } catch (storageError) {
-      console.error('保存到 localStorage 失败:', storageError);
-    }
-    
-    if (allIncompleteSubscriptions.length === 0) {
+    if (totalCount === 0) {
       container.innerHTML = `
         <div class="incomplete-empty">
           <svg class="incomplete-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -842,19 +678,26 @@ async function loadIncompleteSubscriptions(forceRefresh = false) {
       return;
     }
     
-    // 立即计算每页显示数量并显示
+    // 获取第一页数据
     incompletePerPage = calculateIncompleteItemsPerPage();
-    console.log(`✅ 计算得到 incompletePerPage = ${incompletePerPage}`);
-    displayIncompleteSubscriptions(currentIncompletePage);
+    const firstPageUrl = forceRefresh 
+      ? `/api/incomplete-subscriptions?refresh=true&page=1&per_page=${incompletePerPage}`
+      : `/api/incomplete-subscriptions?page=1&per_page=${incompletePerPage}`;
     
-    // 设置定期轻量级刷新（每5分钟）
-    if (incompleteRefreshInterval) {
-      clearInterval(incompleteRefreshInterval);
+    const firstPageResponse = await fetchWithAuth(firstPageUrl);
+    if (!firstPageResponse.ok) {
+      throw new Error(`服务器错误 ${firstPageResponse.status}: ${firstPageResponse.statusText}`);
     }
-    incompleteRefreshInterval = setInterval(() => {
-      console.log('🔄 定期轻量级刷新未完成订阅...');
-      refreshIncompleteSubscriptions();
-    }, 5 * 60 * 1000);
+    const firstPageData = await firstPageResponse.json();
+    
+    // 保存所有未完成订阅和总数
+    allIncompleteSubscriptions = firstPageData.subscriptions || [];
+    incompleteTotalCount = firstPageData.total || 0;
+    
+    console.log(`✅ 首次加载第一页 ${allIncompleteSubscriptions.length} 个订阅，总共 ${incompleteTotalCount} 个`);
+    
+    // 显示第一页
+    displayIncompleteSubscriptions(1);
     
   } catch (error) {
     console.error('❌ 加载未完成订阅失败:', error);
@@ -908,55 +751,110 @@ function calculateIncompleteItemsPerPage() {
   return total;
 }
 
+// 按需加载指定页的数据
+async function loadIncompletePage(page) {
+  const container = document.getElementById('incompleteSubscriptions');
+  
+  // 显示骨架屏
+  const skeletonHTML = Array(incompletePerPage).fill(0).map(() => `
+    <div class="subscription-skeleton">
+      <div class="skeleton-subscription-poster"></div>
+      <div class="skeleton-subscription-info">
+        <div class="skeleton-subscription-title"></div>
+        <div class="skeleton-subscription-title-2"></div>
+        <div class="skeleton-subscription-stat"></div>
+        <div class="skeleton-subscription-stat"></div>
+        <div class="skeleton-subscription-stat"></div>
+        <div class="skeleton-subscription-progress"></div>
+        <div class="skeleton-subscription-status"></div>
+      </div>
+    </div>
+  `).join('');
+  container.innerHTML = skeletonHTML;
+  
+  try {
+    const url = `/api/incomplete-subscriptions?page=${page}&per_page=${incompletePerPage}`;
+    console.log(`📡 请求 URL: ${url}`);
+    const response = await fetchWithAuth(url);
+    
+    if (!response.ok) {
+      throw new Error(`加载失败: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const pageData = data.subscriptions || [];
+    
+    // 计算该页在全局数组中的位置
+    const startIndex = (page - 1) * incompletePerPage;
+    
+    // 确保数组足够大
+    while (allIncompleteSubscriptions.length < startIndex + pageData.length) {
+      allIncompleteSubscriptions.push(null);
+    }
+    
+    // 插入该页的数据
+    pageData.forEach((item, index) => {
+      allIncompleteSubscriptions[startIndex + index] = item;
+    });
+    
+    incompleteTotalCount = data.total || 0;
+    
+    console.log(`✅ 第 ${page} 页加载完成，共 ${pageData.length} 个订阅`);
+    
+    // 重新显示
+    displayIncompleteSubscriptions(page);
+    
+  } catch (error) {
+    console.error(`加载第 ${page} 页失败:`, error);
+    container.innerHTML = `
+      <div class="incomplete-empty">
+        <p style="color: #ef4444;">加载失败，请重试</p>
+      </div>
+    `;
+  }
+}
+
 function displayIncompleteSubscriptions(page) {
   const container = document.getElementById('incompleteSubscriptions');
   const pagination = document.getElementById('incompletePagination');
   
-  // 调试：检查数据状态
-  console.log(`🎨 displayIncompleteSubscriptions 被调用: page=${page}, perPage=${incompletePerPage}, total=${allIncompleteSubscriptions.length}`);
-  console.log(`   数据样本:`, allIncompleteSubscriptions.slice(0, 2));
-  
-  // 如果数据为空，尝试从缓存恢复
-  if (allIncompleteSubscriptions.length === 0) {
-    console.warn('⚠️  allIncompleteSubscriptions 为空，尝试从缓存恢复...');
-    const cachedData = localStorage.getItem('incompleteSubscriptions');
-    if (cachedData) {
-      try {
-        const data = JSON.parse(cachedData);
-        allIncompleteSubscriptions = data.subscriptions || [];
-        console.log(`✅ 从缓存恢复了 ${allIncompleteSubscriptions.length} 个订阅`);
-      } catch (e) {
-        console.error('❌ 从缓存恢复失败:', e);
-      }
-    }
+  // 确保 perPage 已经计算过
+  if (incompletePerPage === 20) {
+    incompletePerPage = calculateIncompleteItemsPerPage();
   }
   
-  // 使用全局的 incompletePerPage 值，确保分页一致
-  const perPage = incompletePerPage;
-  
-  // 如果 perPage 还是默认值，重新计算
-  if (perPage === 20) {
-    const calculated = calculateIncompleteItemsPerPage();
-    if (calculated !== 20) {
-      console.log(`⚠️  perPage 是默认值，重新计算为: ${calculated}`);
-      incompletePerPage = calculated;
-    }
-  }
-  
-  currentIncompletePage = page;
+  // 检查该页数据是否已加载
   const startIndex = (page - 1) * incompletePerPage;
   const endIndex = startIndex + incompletePerPage;
   const pageData = allIncompleteSubscriptions.slice(startIndex, endIndex);
   
-  console.log(`📄 显示第 ${page} 页: startIndex=${startIndex}, endIndex=${endIndex}, 共 ${pageData.length} 项, perPage=${incompletePerPage}`);
+  // 检查是否有数据或者是否有 null 占位符
+  const hasData = pageData.length > 0 && pageData.some(item => item !== null);
   
-  if (pageData.length === 0 && page > 1) {
-    console.warn(`⚠️  第 ${page} 页没有数据，返回第一页`);
-    displayIncompleteSubscriptions(1);
+  if (!hasData) {
+    loadIncompletePage(page);
     return;
   }
   
-  container.innerHTML = pageData.map(sub => {
+  // 过滤掉 null 值
+  const validPageData = pageData.filter(item => item !== null);
+  
+  if (validPageData.length === 0) {
+    container.innerHTML = `
+      <div class="incomplete-empty">
+        <svg class="incomplete-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+        </svg>
+        <p>太棒了！所有订阅都已完成 🎉</p>
+      </div>
+    `;
+    return;
+  }
+  
+  currentIncompletePage = page;
+  
+  container.innerHTML = validPageData.map(sub => {
     const posterUrl = sub.poster || '/256.webp';
     const progressPercent = sub.progress || 0;
     const isMovie = sub.mediaType === 'movie';
@@ -966,58 +864,83 @@ function displayIncompleteSubscriptions(page) {
       'incomplete': '<path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
       'ongoing': '<path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
       'pending': '<path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
+      'complete': '<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
       'unknown': '<path d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
-    }[sub.status] || '';
+    }[sub.status] || '<path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
     
     return `
       <div class="incomplete-item">
         <img src="${posterUrl}" class="incomplete-poster" alt="${escapeHtml(sub.title)}" loading="lazy" onerror="this.src='/256.webp'">
         <div class="incomplete-info">
-          <div class="incomplete-title">${escapeHtml(sub.title)}</div>
-          ${isMovie ? `
-            <div class="incomplete-stats">
-              <div class="incomplete-stat">
-                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path>
-                </svg>
-                <span>类型: <span class="incomplete-stat-value">电影</span></span>
+          <div class="incomplete-content">
+            <div class="incomplete-title">${escapeHtml(sub.title)}</div>
+            ${isMovie ? `
+              <div class="incomplete-stats">
+                <div class="incomplete-stat">
+                  <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path>
+                  </svg>
+                  <span>类型: <span class="incomplete-stat-value">电影</span></span>
+                </div>
+                ${sub.year ? `
+                  <div class="incomplete-stat">
+                    <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span>年份: <span class="incomplete-stat-value">${sub.year}</span></span>
+                  </div>
+                ` : ''}
+                <div class="incomplete-stat">
+                  <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                  </svg>
+                  <span>评分: <span class="incomplete-stat-value" style="color: ${parseFloat(sub.rating) >= 7 ? '#10b981' : parseFloat(sub.rating) >= 5 ? '#fbbf24' : '#ef4444'};">${sub.rating}</span></span>
+                </div>
+                <div class="incomplete-stat">
+                  <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span>状态: <span class="incomplete-stat-value" style="color: ${sub.status === 'complete' ? '#10b981' : '#ef4444'};">${sub.status === 'complete' ? '已入库' : '未入库'}</span></span>
+                </div>
               </div>
-              <div class="incomplete-stat">
-                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <span>状态: <span class="incomplete-stat-value" style="color: #ef4444;">未入库</span></span>
+            ` : `
+              <div class="incomplete-stats">
+                ${sub.year ? `
+                  <div class="incomplete-stat">
+                    <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span>年份: <span class="incomplete-stat-value">${sub.year}</span></span>
+                  </div>
+                ` : ''}
+                <div class="incomplete-stat">
+                  <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                  </svg>
+                  <span>评分: <span class="incomplete-stat-value" style="color: ${parseFloat(sub.rating) >= 7 ? '#10b981' : parseFloat(sub.rating) >= 5 ? '#fbbf24' : '#ef4444'};">${sub.rating}</span></span>
+                </div>
+                <div class="incomplete-stat">
+                  <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"></path>
+                  </svg>
+                  <span>已入库: <span class="incomplete-stat-value">${sub.subscribedEpisodes}</span> 集</span>
+                </div>
+                <div class="incomplete-stat">
+                  <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span>总集数: <span class="incomplete-stat-value">${sub.tmdbTotalEpisodes}</span> 集</span>
+                </div>
               </div>
-            </div>
-          ` : `
-            <div class="incomplete-stats">
-              <div class="incomplete-stat">
-                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"></path>
-                </svg>
-                <span>已入库: <span class="incomplete-stat-value">${sub.subscribedEpisodes}</span> 集</span>
+            `}
+            ${sub.tmdbTotalEpisodes > 0 && !isMovie ? `
+              <div class="incomplete-progress">
+                <div class="incomplete-progress-bar">
+                  <div class="incomplete-progress-fill" style="width: ${progressPercent}%"></div>
+                </div>
               </div>
-              <div class="incomplete-stat">
-                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <span>总集数: <span class="incomplete-stat-value">${sub.tmdbTotalEpisodes}</span> 集</span>
-              </div>
-              <div class="incomplete-stat">
-                <svg class="incomplete-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                </svg>
-                <span>缺少: <span class="incomplete-stat-value" style="color: #ef4444;">${sub.missingEpisodes}</span> 集</span>
-              </div>
-            </div>
-          `}
-          ${!isMovie && sub.tmdbTotalEpisodes > 0 ? `
-            <div class="incomplete-progress">
-              <div class="incomplete-progress-bar">
-                <div class="incomplete-progress-fill" style="width: ${progressPercent}%"></div>
-              </div>
-            </div>
-          ` : ''}
+            ` : ''}
+          </div>
           <span class="incomplete-status ${sub.status}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               ${statusIcon}
@@ -1037,9 +960,7 @@ function updateIncompletePagination(currentPage) {
   const pagination = document.getElementById('incompletePagination');
   // 使用全局的 incompletePerPage 值，确保分页一致
   const perPage = incompletePerPage;
-  const totalPages = Math.ceil(allIncompleteSubscriptions.length / perPage);
-  
-  console.log(`📄 更新分页: currentPage=${currentPage}, perPage=${perPage}, total=${allIncompleteSubscriptions.length}, totalPages=${totalPages}`);
+  const totalPages = Math.ceil(incompleteTotalCount / perPage);
   
   if (totalPages <= 1) {
     pagination.innerHTML = '';
@@ -1106,10 +1027,8 @@ function changeIncompletePage(page) {
   }
 }
 
-// 刷新未完成订阅数据
+// 刷新订阅数据
 async function refreshIncompleteSubscriptions() {
-  console.log('🔄 手动刷新未完成订阅数据');
-  
   const btn = document.querySelector('.refresh-btn');
   const svg = btn?.querySelector('svg');
   
@@ -1124,10 +1043,6 @@ async function refreshIncompleteSubscriptions() {
   }
   
   try {
-    // 清除缓存
-    localStorage.removeItem('incompleteSubscriptions');
-    localStorage.removeItem('incompleteSubscriptionsTime');
-    
     // 重新加载
     allIncompleteSubscriptions = [];
     await loadIncompleteSubscriptions(true);
@@ -1364,7 +1279,6 @@ let resizeTimeout;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimeout);
   resizeTimeout = setTimeout(() => {
-    console.log('🔄 窗口大小改变，重新加载热门内容和未完成订阅');
     loadTrending(currentMoviePage, currentTVPage);
     
     // 重新计算并显示未完成订阅（如果已加载）
@@ -2061,7 +1975,6 @@ async function runTaskNow(event) {
 function updateTaskRunButton() {
   const runBtn = document.querySelector('.task-run-btn');
   const stopBtn = document.querySelector('.task-stop-btn');
-  console.log('🔄 更新按钮状态, isTaskRunning =', isTaskRunning, 'runBtn =', !!runBtn, 'stopBtn =', !!stopBtn);
   
   if (!runBtn || !stopBtn) return;
   
@@ -2144,31 +2057,40 @@ async function stopTaskNow(event) {
 
 // 批量查找 HDHive 链接（使用后台任务）
 async function batchSearchHDHive() {
-  // 确保数据已加载
-  if (!allIncompleteSubscriptions || allIncompleteSubscriptions.length === 0) {
-    // 尝试从 localStorage 加载
-    const cachedData = localStorage.getItem('incompleteSubscriptions');
-    if (cachedData) {
-      try {
-        const data = JSON.parse(cachedData);
-        allIncompleteSubscriptions = data.subscriptions || [];
-      } catch (e) {
-        console.error('解析缓存失败:', e);
-      }
-    }
-  }
-  
-  if (!allIncompleteSubscriptions || allIncompleteSubscriptions.length === 0) {
-    console.log('没有未完成的订阅');
-    return;
-  }
-  
   try {
+    // 显示加载提示
+    const loadingMsg = document.createElement('div');
+    loadingMsg.className = 'log-item info';
+    loadingMsg.innerHTML = `
+      <div class="log-time">${new Date().toLocaleTimeString('zh-CN')}</div>
+      <div class="log-content">
+        <div class="log-title">正在获取所有订阅...</div>
+      </div>
+    `;
+    const content = document.getElementById('logPanelContent');
+    content.innerHTML = '';
+    content.appendChild(loadingMsg);
+    
+    // 从后端获取所有订阅（不分页）
+    const allSubsResponse = await fetchWithAuth('/api/incomplete-subscriptions?page=1&per_page=9999');
+    if (!allSubsResponse.ok) {
+      throw new Error('获取订阅列表失败');
+    }
+    const allSubsData = await allSubsResponse.json();
+    const allSubscriptions = allSubsData.subscriptions || [];
+    
+    if (allSubscriptions.length === 0) {
+      alert('没有订阅可以查找');
+      return;
+    }
+    
+    console.log(`📊 获取到 ${allSubscriptions.length} 个订阅，准备批量查找`);
+    
     // 启动后台任务
     const response = await fetchWithAuth('/api/hdhive/batch-search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscriptions: allIncompleteSubscriptions })
+      body: JSON.stringify({ subscriptions: allSubscriptions })
     });
     
     const data = await response.json();
@@ -2177,6 +2099,18 @@ async function batchSearchHDHive() {
       // 清空日志
       clearLogs();
       
+      // 显示启动信息
+      const startMsg = document.createElement('div');
+      startMsg.className = 'log-item success';
+      startMsg.innerHTML = `
+        <div class="log-time">${new Date().toLocaleTimeString('zh-CN')}</div>
+        <div class="log-content">
+          <div class="log-title">批量查找已启动</div>
+          <div class="log-message">共 ${data.total} 个订阅需要查找${data.skipped > 0 ? `，跳过 ${data.skipped} 个已完成` : ''}</div>
+        </div>
+      `;
+      content.appendChild(startMsg);
+      
       // 开始轮询任务状态（会设置 isTaskRunning = true 并更新按钮）
       startBatchSearchPolling();
     } else {
@@ -2184,6 +2118,7 @@ async function batchSearchHDHive() {
     }
   } catch (error) {
     console.error('启动批量查找失败:', error);
+    alert('启动批量查找失败: ' + error.message);
   }
 }
 

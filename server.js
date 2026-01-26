@@ -1299,22 +1299,29 @@ app.get('/api/recent-requests', async (req, res) => {
   }
 });
 
-// 未完成订阅缓存
-let incompleteSubscriptionsCache = null;
-let incompleteSubscriptionsCacheExpiry = 0;
+// 未完成订阅缓存（按页缓存集数信息）
+let incompleteSubscriptionsPageCache = {}; // { 'page_perPage': { subscriptions: [...], checkedAt: timestamp } }
+let allSubscriptionsCache = null; // 所有订阅列表（未检查完成状态）
+let allSubscriptionsCacheExpiry = 0;
 const INCOMPLETE_CACHE_TTL = 10 * 60 * 1000; // 10分钟缓存
 
-// 获取未完成的订阅（带缓存和增量更新）
+// 获取未完成的订阅（按需检查，分页返回）
 app.get('/api/incomplete-subscriptions', requireAuth, async (req, res) => {
   try {
     const forceRefresh = req.query.refresh === 'true';
+    const page = parseInt(req.query.page) || 1;
+    const perPage = parseInt(req.query.per_page) || 14;
+    const onlyCount = req.query.only_count === 'true';
     
-    // 如果有缓存且未过期，直接返回
-    if (!forceRefresh && incompleteSubscriptionsCache && Date.now() < incompleteSubscriptionsCacheExpiry) {
-      console.log('📦 返回缓存的未完成订阅数据');
-      return res.json(incompleteSubscriptionsCache);
+    console.log(`📥 API 请求: page=${page}, perPage=${perPage}, onlyCount=${onlyCount}, refresh=${forceRefresh}`);
+    
+    // 强制刷新时清除所有缓存
+    if (forceRefresh) {
+      incompleteSubscriptionsPageCache = {};
+      allSubscriptionsCache = null;
+      allSubscriptionsCacheExpiry = 0;
     }
-
+    
     if (!process.env.MEDIAHELPER_URL || !process.env.MEDIAHELPER_USERNAME) {
       return res.json({ subscriptions: [], total: 0 });
     }
@@ -1323,200 +1330,182 @@ app.get('/api/incomplete-subscriptions', requireAuth, async (req, res) => {
       return res.json({ subscriptions: [], total: 0 });
     }
 
-    // 1. 获取所有订阅
-    const data = await getMediaHelperSubscriptions();
-    if (!data || !data.subscriptions || data.subscriptions.length === 0) {
-      const result = { subscriptions: [], total: 0 };
-      incompleteSubscriptionsCache = result;
-      incompleteSubscriptionsCacheExpiry = Date.now() + INCOMPLETE_CACHE_TTL;
-      return res.json(result);
-    }
-
-    // 2. 获取所有订阅（电影和电视剧）
-    const allMediaSubscriptions = data.subscriptions.filter(sub => {
-      const params = sub.params || {};
-      return params.media_type === 'tv' || params.media_type === 'movie';
-    });
-
-    if (allMediaSubscriptions.length === 0) {
-      const result = { subscriptions: [], total: 0 };
-      incompleteSubscriptionsCache = result;
-      incompleteSubscriptionsCacheExpiry = Date.now() + INCOMPLETE_CACHE_TTL;
-      return res.json(result);
-    }
-
-    console.log(`\n🔍 检查 ${allMediaSubscriptions.length} 个订阅的完成情况...`);
-    
-    // 统计电影和电视剧数量
-    const movieCount = allMediaSubscriptions.filter(s => s.params?.media_type === 'movie').length;
-    const tvCount = allMediaSubscriptions.filter(s => s.params?.media_type === 'tv').length;
-    console.log(`   📊 电影: ${movieCount} 个, 电视剧: ${tvCount} 个`);
-
-    // 3. 检查每个订阅的情况
-    const incompleteSubscriptions = [];
-
-    for (const sub of allMediaSubscriptions) {
-      const params = sub.params || {};
-      const mediaType = params.media_type;
-      const tmdbId = params.tmdb_id;
-      const title = params.title || params.custom_name || sub.name;
-      
-      if (!tmdbId) continue;
-
-      try {
-        if (mediaType === 'tv') {
-          // 电视剧：检查集数
-          const tmdbResponse = await fetchWithProxy(
-            `https://api.tmdb.org/3/tv/${tmdbId}?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
-          );
-
-          if (!tmdbResponse.ok) {
-            continue;
-          }
-
-          const tmdbData = await tmdbResponse.json();
-          
-          // TMDB 总集数
-          const tmdbTotalEpisodes = tmdbData.number_of_episodes || 0;
-          const tmdbStatus = tmdbData.status;
-          
-          if (tmdbTotalEpisodes === 0) {
-            continue; // 跳过没有集数信息的
-          }
-
-          // 查询 Emby 中的实际集数
-          const embyResponse = await fetch(
-            `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Series&Recursive=true&Fields=ProviderIds&AnyProviderIdEquals=tmdb.${tmdbId}`
-          );
-
-          let embyEpisodeCount = 0;
-          if (embyResponse.ok) {
-            const embyData = await embyResponse.json();
-            const items = embyData.Items || [];
-            
-            if (items.length > 0) {
-              const seriesId = items[0].Id;
-              
-              // 获取该剧集的所有 episodes
-              const episodesResponse = await fetch(
-                `${process.env.EMBY_URL}/Shows/${seriesId}/Episodes?api_key=${process.env.EMBY_API_KEY}`
-              );
-
-              if (episodesResponse.ok) {
-                const episodesData = await episodesResponse.json();
-                embyEpisodeCount = episodesData.Items?.length || 0;
-              }
-            }
-          }
-
-          const missingCount = tmdbTotalEpisodes - embyEpisodeCount;
-          
-          // 只显示缺集的（缺集数 > 0）
-          if (missingCount > 0) {
-            console.log(`   ⚠️  ${title}: ${embyEpisodeCount}/${tmdbTotalEpisodes} 集 (缺 ${missingCount} 集) [${tmdbStatus}]`);
-            
-            incompleteSubscriptions.push({
-              ...sub,
-              mediaType: 'tv',
-              status: tmdbStatus === 'Ended' || tmdbStatus === 'Canceled' ? 'incomplete' : 'ongoing',
-              embyEpisodes: embyEpisodeCount,
-              tmdbTotalEpisodes: tmdbTotalEpisodes,
-              missingEpisodes: missingCount,
-              tmdbStatus: tmdbStatus
-            });
-          }
-        } else if (mediaType === 'movie') {
-          // 电影：检查是否已入库
-          console.log(`   🎬 检查电影: ${title} (tmdb_id=${tmdbId})`);
-          
-          const embyResponse = await fetch(
-            `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds&AnyProviderIdEquals=tmdb.${tmdbId}`
-          );
-
-          let hasMovie = false;
-          if (embyResponse.ok) {
-            const embyData = await embyResponse.json();
-            hasMovie = (embyData.Items || []).length > 0;
-            console.log(`   🔍 Emby 查询结果: ${hasMovie ? '已入库' : '未入库'} (找到 ${embyData.Items?.length || 0} 个)`);
-          } else {
-            console.log(`   ❌ Emby 查询失败: ${embyResponse.status}`);
-          }
-
-          // 如果电影还没入库，显示在未完成列表中
-          if (!hasMovie) {
-            console.log(`   ⚠️  ${title}: 未入库 [电影]`);
-            
-            incompleteSubscriptions.push({
-              ...sub,
-              mediaType: 'movie',
-              status: 'pending',
-              embyEpisodes: 0,
-              tmdbTotalEpisodes: 1,
-              missingEpisodes: 1,
-              tmdbStatus: 'Movie'
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`   ❌ 检查 ${title} 失败:`, error.message);
-        continue;
+    // 1. 获取所有订阅列表（只获取列表，不检查完成状态）
+    if (!allSubscriptionsCache || Date.now() >= allSubscriptionsCacheExpiry) {
+      console.log('🔄 获取 MediaHelper 订阅列表...');
+      const data = await getMediaHelperSubscriptions();
+      if (!data || !data.subscriptions || data.subscriptions.length === 0) {
+        return res.json({ subscriptions: [], total: 0 });
       }
+
+      // 筛选出电影和电视剧
+      allSubscriptionsCache = data.subscriptions.filter(sub => {
+        const params = sub.params || {};
+        return params.media_type === 'tv' || params.media_type === 'movie';
+      });
+      allSubscriptionsCacheExpiry = Date.now() + INCOMPLETE_CACHE_TTL;
+      
+      console.log(`📊 共有 ${allSubscriptionsCache.length} 个订阅（电影+电视剧）`);
     }
-
-    console.log(`\n📊 找到 ${incompleteSubscriptions.length} 个未完成的订阅\n`);
-
-    // 4. 格式化返回数据
-    const formattedSubscriptions = incompleteSubscriptions.map(sub => {
+    
+    const totalSubscriptions = allSubscriptionsCache.length;
+    
+    // 如果只要总数，直接返回
+    if (onlyCount) {
+      return res.json({ 
+        total: totalSubscriptions,
+        subscriptions: []
+      });
+    }
+    
+    // 2. 检查该页是否有缓存
+    const cacheKey = `${page}_${perPage}`;
+    const cachedPage = incompleteSubscriptionsPageCache[cacheKey];
+    
+    if (cachedPage && Date.now() < cachedPage.checkedAt + INCOMPLETE_CACHE_TTL) {
+      console.log(`📦 返回第 ${page} 页的缓存数据`);
+      return res.json({
+        subscriptions: cachedPage.subscriptions,
+        total: totalSubscriptions,
+        page,
+        perPage,
+        totalPages: Math.ceil(totalSubscriptions / perPage)
+      });
+    }
+    
+    // 3. 计算该页的订阅
+    const startIndex = (page - 1) * perPage;
+    const endIndex = Math.min(startIndex + perPage, totalSubscriptions);
+    const pageSubscriptions = allSubscriptionsCache.slice(startIndex, endIndex);
+    
+    console.log(`\n� 检查第 ${page} 页的 ${pageSubscriptions.length} 个订阅的集数信息...`);
+    
+    // 4. 格式化该页订阅数据（使用 MediaHelper 提供的集数信息）
+    const formattedSubscriptions = pageSubscriptions.map(sub => {
       const params = sub.params || {};
       const info = sub.subscription_info || {};
+      const mediaType = params.media_type;
       
       let posterUrl = info.poster_path || params.poster_path || null;
       if (posterUrl && !posterUrl.startsWith('http')) {
         posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
       }
-
-      const statusText = {
-        'incomplete': '已完结-缺集',
-        'ongoing': '连载中',
-        'pending': '等待资源',
-        'unknown': '未知'
-      }[sub.status] || '未知';
-
+      
+      // 从 MediaHelper 的 episodes 数据中获取集数信息
+      let subscribedEpisodes = 0;
+      let tmdbTotalEpisodes = 0;
+      let status = 'unknown';
+      let statusText = '订阅中';
+      
+      if (mediaType === 'tv' && sub.episodes && Array.isArray(sub.episodes) && sub.episodes.length > 0) {
+        const episodeData = sub.episodes[0];
+        
+        // 获取已订阅的集数（episodes_arr 中的集数）
+        if (episodeData.episodes_arr) {
+          Object.values(episodeData.episodes_arr).forEach(seasonEpisodes => {
+            subscribedEpisodes += seasonEpisodes.length;
+          });
+        }
+        
+        // 获取总集数（episodes_count 中的 count）
+        if (episodeData.episodes_count) {
+          Object.values(episodeData.episodes_count).forEach(seasonData => {
+            if (seasonData.count) {
+              tmdbTotalEpisodes += seasonData.count;
+            }
+          });
+        }
+        
+        // 判断状态
+        const missingCount = tmdbTotalEpisodes - subscribedEpisodes;
+        if (missingCount > 0) {
+          status = 'incomplete';
+          statusText = `缺 ${missingCount} 集`;
+        } else if (subscribedEpisodes > 0) {
+          status = 'complete';
+          statusText = '已完成';
+        }
+      } else if (mediaType === 'movie') {
+        // 电影：检查 episodes 数组是否有数据
+        if (sub.episodes && Array.isArray(sub.episodes) && sub.episodes.length > 0) {
+          // episodes 有数据，说明已入库
+          const episodeData = sub.episodes[0];
+          if (episodeData.episodes_arr && Object.keys(episodeData.episodes_arr).length > 0) {
+            tmdbTotalEpisodes = 1;
+            subscribedEpisodes = 1;
+            status = 'complete';
+            statusText = '已完成';
+          } else {
+            // episodes 数组存在但没有实际数据
+            tmdbTotalEpisodes = 1;
+            subscribedEpisodes = 0;
+            status = 'pending';
+            statusText = '等待资源';
+          }
+        } else {
+          // episodes 数组为空，说明未入库
+          tmdbTotalEpisodes = 1;
+          subscribedEpisodes = 0;
+          status = 'pending';
+          statusText = '等待资源';
+        }
+      }
+      
+      const missingEpisodes = Math.max(0, tmdbTotalEpisodes - subscribedEpisodes);
+      const progress = tmdbTotalEpisodes > 0 ? Math.round((subscribedEpisodes / tmdbTotalEpisodes) * 100) : 0;
+      
+      // 提取年份和评分
+      const releaseDate = params.release_date || '';
+      const year = releaseDate ? releaseDate.split('-')[0] : '';
+      const voteAverage = params.vote_average;
+      const rating = (voteAverage !== null && voteAverage !== undefined && voteAverage > 0) 
+        ? voteAverage.toFixed(1) 
+        : '0.0';
+      
       return {
         id: params.tmdb_id,
         title: params.title || params.custom_name || sub.name,
         poster: posterUrl,
-        mediaType: sub.mediaType || params.media_type,
-        status: sub.status,
+        mediaType: mediaType,
+        status: status,
         statusText: statusText,
-        subscribedEpisodes: sub.embyEpisodes,
-        tmdbTotalEpisodes: sub.tmdbTotalEpisodes,
-        missingEpisodes: sub.missingEpisodes,
-        progress: sub.tmdbTotalEpisodes > 0 ? Math.round((sub.embyEpisodes / sub.tmdbTotalEpisodes) * 100) : 0,
-        tmdbStatus: sub.tmdbStatus,
+        subscribedEpisodes: subscribedEpisodes,
+        tmdbTotalEpisodes: tmdbTotalEpisodes,
+        missingEpisodes: missingEpisodes,
+        progress: progress,
+        tmdbStatus: mediaType === 'movie' ? 'Movie' : 'Unknown',
         subscriptionId: sub.uuid,
-        createdAt: sub.created_at
+        createdAt: sub.created_at,
+        year: year,
+        rating: rating
       };
     });
-
-    // 按创建时间排序（最新的排前面）
+    
+    console.log(`✅ 第 ${page} 页格式化完成，共 ${formattedSubscriptions.length} 个订阅\n`);
+    
+    // 5. 按创建时间排序（最新的排前面）
     formattedSubscriptions.sort((a, b) => {
       const dateA = new Date(a.createdAt);
       const dateB = new Date(b.createdAt);
-      return dateB - dateA; // 降序，最新的在前
+      return dateB - dateA;
     });
-
-    const result = { 
+    
+    // 6. 缓存该页数据
+    incompleteSubscriptionsPageCache[cacheKey] = {
       subscriptions: formattedSubscriptions,
-      total: formattedSubscriptions.length,
-      cachedAt: Date.now()
+      checkedAt: Date.now()
     };
     
-    // 更新缓存
-    incompleteSubscriptionsCache = result;
-    incompleteSubscriptionsCacheExpiry = Date.now() + INCOMPLETE_CACHE_TTL;
-
-    res.json(result);
+    // 7. 返回该页数据
+    const totalPages = Math.ceil(totalSubscriptions / perPage);
+    
+    res.json({
+      subscriptions: formattedSubscriptions,
+      total: totalSubscriptions,
+      page,
+      perPage,
+      totalPages
+    });
   } catch (error) {
     console.error('获取未完成订阅错误:', error);
     res.json({ subscriptions: [], total: 0 });
@@ -2223,41 +2212,114 @@ app.post('/api/hdhive/batch-search', requireAuth, async (req, res) => {
     // 生成唯一任务ID
     const taskStartTime = Date.now();
     
+    // 预先获取所有订阅信息，筛选出未完成的
+    const allSubscriptionsData = await getMediaHelperSubscriptions();
+    const subscriptionMap = new Map();
+    allSubscriptionsData.subscriptions.forEach(s => {
+      subscriptionMap.set(s.uuid, s);
+    });
+    
+    // 筛选未完成的订阅
+    const incompleteSubscriptions = [];
+    const skippedSubscriptions = [];
+    
+    for (const sub of subscriptions) {
+      const fullSub = subscriptionMap.get(sub.subscriptionId);
+      if (!fullSub) {
+        incompleteSubscriptions.push(sub);
+        continue;
+      }
+      
+      const mediaType = sub.mediaType;
+      
+      if (mediaType === 'tv' && fullSub.episodes && Array.isArray(fullSub.episodes) && fullSub.episodes.length > 0) {
+        const episodeData = fullSub.episodes[0];
+        
+        // 获取已订阅的集数
+        let subscribedEpisodes = 0;
+        if (episodeData.episodes_arr) {
+          Object.values(episodeData.episodes_arr).forEach(seasonEpisodes => {
+            subscribedEpisodes += seasonEpisodes.length;
+          });
+        }
+        
+        // 获取总集数
+        let tmdbTotalEpisodes = 0;
+        if (episodeData.episodes_count) {
+          Object.values(episodeData.episodes_count).forEach(seasonData => {
+            if (seasonData.count) {
+              tmdbTotalEpisodes += seasonData.count;
+            }
+          });
+        }
+        
+        // 判断是否完成
+        if (subscribedEpisodes < tmdbTotalEpisodes) {
+          incompleteSubscriptions.push(sub);
+        } else {
+          skippedSubscriptions.push({ ...sub, reason: `已完成 (${subscribedEpisodes}/${tmdbTotalEpisodes} 集)` });
+        }
+      } else if (mediaType === 'movie') {
+        // 电影：检查 episodes 数组是否为空
+        if (!fullSub.episodes || fullSub.episodes.length === 0) {
+          // episodes 为空，说明未入库
+          incompleteSubscriptions.push(sub);
+        } else {
+          // episodes 有数据，说明已入库
+          skippedSubscriptions.push({ ...sub, reason: '已入库' });
+        }
+      } else {
+        // 其他情况也加入查找列表
+        incompleteSubscriptions.push(sub);
+      }
+    }
+    
+    console.log(`   📊 筛选结果: ${incompleteSubscriptions.length} 个未完成，${skippedSubscriptions.length} 个已跳过`);
+    
     // 更新任务状态（不要重新创建对象）
     batchSearchTask.running = true;
     batchSearchTask.progress = 0;
-    batchSearchTask.total = subscriptions.length;
+    batchSearchTask.total = incompleteSubscriptions.length;
     batchSearchTask.current = null;
     batchSearchTask.currentTaskId = taskStartTime; // 设置当前任务ID
     batchSearchTask.logs = [];
     batchSearchTask.results = {
       success: 0,
       fail: 0,
-      totalLinks: 0
+      totalLinks: 0,
+      skipped: skippedSubscriptions.length
     };
     
+    // 添加跳过的日志
+    for (const skipped of skippedSubscriptions) {
+      batchSearchTask.logs.unshift({
+        time: new Date().toISOString(),
+        title: skipped.title,
+        status: 'info',
+        message: `⏭️ 跳过: ${skipped.reason}`
+      });
+    }
+    
     // 立即返回，任务在后台运行
-    res.json({ success: true, message: '批量查找任务已启动' });
+    res.json({ 
+      success: true, 
+      message: '批量查找任务已启动',
+      total: incompleteSubscriptions.length,
+      skipped: skippedSubscriptions.length
+    });
     
     // 后台执行查找任务
     (async () => {
       console.log(`📋 任务ID: ${taskStartTime}`);
       
-      // 预先获取所有订阅信息（避免在循环中重复查询）
-      const allSubscriptionsData = await getMediaHelperSubscriptions();
-      const subscriptionMap = new Map();
-      allSubscriptionsData.subscriptions.forEach(s => {
-        subscriptionMap.set(s.uuid, s);
-      });
-      
-      for (let i = 0; i < subscriptions.length; i++) {
+      for (let i = 0; i < incompleteSubscriptions.length; i++) {
         // 检查任务是否被停止或被新任务替换
         if (!batchSearchTask.running || batchSearchTask.currentTaskId !== taskStartTime) {
-          console.log(`⏹️  任务 ${taskStartTime} 被中断 (${i}/${subscriptions.length})`);
+          console.log(`⏹️  任务 ${taskStartTime} 被中断 (${i}/${incompleteSubscriptions.length})`);
           return; // 直接退出整个异步函数
         }
         
-        const sub = subscriptions[i];
+        const sub = incompleteSubscriptions[i];
         const title = sub.title;
         const tmdbId = sub.id;
         const mediaType = sub.mediaType;
@@ -2587,7 +2649,7 @@ async function startServer() {
     console.log('\n⏰ 定时任务触发：开始批量查找 HDHive 链接...');
     
     try {
-      // 获取未完成订阅
+      // 获取所有订阅
       const mhData = await getMediaHelperSubscriptions();
       if (!mhData || !mhData.subscriptions) {
         console.log('   ❌ 无法获取订阅列表');
@@ -2599,61 +2661,59 @@ async function startServer() {
         return params.media_type === 'tv' || params.media_type === 'movie';
       });
       
-      // 获取未完成的订阅
+      console.log(`   📊 共有 ${allMediaSubscriptions.length} 个订阅（电影+电视剧）`);
+      
+      // 筛选未完成的订阅（使用 MediaHelper 的 episodes 数据）
       const incompleteSubscriptions = [];
+      let skippedCount = 0;
+      
       for (const sub of allMediaSubscriptions) {
         const params = sub.params || {};
-        const tmdbId = params.tmdb_id;
         const mediaType = params.media_type;
+        const title = params.title || params.custom_name || sub.name;
         
-        if (!tmdbId) continue;
-        
-        if (mediaType === 'tv') {
-          // 检查电视剧是否完成
-          const tmdbData = await getTMDBData(tmdbId, 'tv');
-          if (!tmdbData) continue;
+        if (mediaType === 'tv' && sub.episodes && Array.isArray(sub.episodes) && sub.episodes.length > 0) {
+          const episodeData = sub.episodes[0];
           
-          const tmdbTotalEpisodes = tmdbData.number_of_episodes || 0;
-          const embyResponse = await fetch(
-            `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Series&Recursive=true&Fields=ProviderIds&AnyProviderIdEquals=tmdb.${tmdbId}`
-          );
-          
-          let embyEpisodeCount = 0;
-          if (embyResponse.ok) {
-            const embyData = await embyResponse.json();
-            const items = embyData.Items || [];
-            if (items.length > 0) {
-              const seriesId = items[0].Id;
-              const episodesResponse = await fetch(
-                `${process.env.EMBY_URL}/Shows/${seriesId}/Episodes?api_key=${process.env.EMBY_API_KEY}`
-              );
-              if (episodesResponse.ok) {
-                const episodesData = await episodesResponse.json();
-                embyEpisodeCount = episodesData.Items?.length || 0;
-              }
-            }
+          // 获取已订阅的集数
+          let subscribedEpisodes = 0;
+          if (episodeData.episodes_arr) {
+            Object.values(episodeData.episodes_arr).forEach(seasonEpisodes => {
+              subscribedEpisodes += seasonEpisodes.length;
+            });
           }
           
-          if (embyEpisodeCount < tmdbTotalEpisodes) {
+          // 获取总集数
+          let tmdbTotalEpisodes = 0;
+          if (episodeData.episodes_count) {
+            Object.values(episodeData.episodes_count).forEach(seasonData => {
+              if (seasonData.count) {
+                tmdbTotalEpisodes += seasonData.count;
+              }
+            });
+          }
+          
+          // 判断是否完成
+          if (subscribedEpisodes < tmdbTotalEpisodes) {
             incompleteSubscriptions.push(sub);
+          } else {
+            console.log(`   ⏭️  跳过已完成: ${title} (${subscribedEpisodes}/${tmdbTotalEpisodes} 集)`);
+            skippedCount++;
           }
         } else if (mediaType === 'movie') {
-          // 检查电影是否入库
-          const embyResponse = await fetch(
-            `${process.env.EMBY_URL}/Items?api_key=${process.env.EMBY_API_KEY}&IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds&AnyProviderIdEquals=tmdb.${tmdbId}`
-          );
-          
-          if (embyResponse.ok) {
-            const embyData = await embyResponse.json();
-            const hasMovie = (embyData.Items || []).length > 0;
-            if (!hasMovie) {
-              incompleteSubscriptions.push(sub);
-            }
+          // 电影：检查 episodes 数组是否为空
+          if (!sub.episodes || sub.episodes.length === 0) {
+            // episodes 为空，说明未入库
+            incompleteSubscriptions.push(sub);
+          } else {
+            // episodes 有数据，说明已入库
+            console.log(`   ⏭️  跳过已入库: ${title}`);
+            skippedCount++;
           }
         }
       }
       
-      console.log(`   📊 找到 ${incompleteSubscriptions.length} 个未完成订阅`);
+      console.log(`   📊 找到 ${incompleteSubscriptions.length} 个未完成订阅，跳过 ${skippedCount} 个已完成/已入库`);
       
       if (incompleteSubscriptions.length === 0) {
         console.log('   ✅ 没有未完成的订阅，任务结束');
@@ -2716,22 +2776,49 @@ async function startServer() {
     // 每 7 天 = 7 * 24 * 60 * 60 * 1000 毫秒
     const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
     
-    // 设置下次运行时间
-    schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+    // 如果已经有下次运行时间，检查是否已过期
+    let delay = SEVEN_DAYS;
+    if (schedulerState.nextRun) {
+      const savedNextRun = new Date(schedulerState.nextRun).getTime();
+      const now = Date.now();
+      
+      if (savedNextRun > now) {
+        // 还没到时间，继续等待剩余时间
+        delay = savedNextRun - now;
+        console.log(`📅 恢复定时任务，剩余时间: ${Math.round(delay / 1000 / 60 / 60)} 小时`);
+      } else {
+        // 已经过期，立即执行一次
+        console.log('⏰ 定时任务已过期，立即执行...');
+        runScheduledBatchSearch();
+        schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+        saveSchedulerState();
+      }
+    } else {
+      // 首次启动，设置下次运行时间
+      schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+      saveSchedulerState();
+    }
     
-    // 启动定时器
-    schedulerState.intervalId = setInterval(() => {
+    // 启动定时器（使用计算出的延迟时间）
+    schedulerState.intervalId = setTimeout(() => {
       runScheduledBatchSearch();
       schedulerState.nextRun = Date.now() + SEVEN_DAYS;
       saveSchedulerState();
-    }, SEVEN_DAYS);
+      
+      // 执行完后，设置下一个周期的定时器
+      schedulerState.intervalId = setInterval(() => {
+        runScheduledBatchSearch();
+        schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+        saveSchedulerState();
+      }, SEVEN_DAYS);
+    }, delay);
     
-    saveSchedulerState();
     console.log(`📅 定时任务已启动，下次运行: ${new Date(schedulerState.nextRun).toLocaleString('zh-CN')}`);
   }
   
   function stopScheduler() {
     if (schedulerState.intervalId) {
+      clearTimeout(schedulerState.intervalId);
       clearInterval(schedulerState.intervalId);
       schedulerState.intervalId = null;
     }

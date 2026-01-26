@@ -21,7 +21,7 @@
       document.documentElement.setAttribute('data-theme', savedTheme);
     })();
   </script>
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=25">
   <!-- Preconnect to external resources -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
@@ -64,7 +64,7 @@
             </div>
             <div class="dropdown-item">
               <span class="status-dot" id="mediahelperStatusDot"></span>
-              <span>MediaHelper 服务</span>
+              <span>MH 服务</span>
               <span class="status-ping" id="mediahelperPing">-</span>
             </div>
             <div class="dropdown-item">
@@ -405,7 +405,7 @@
       </div>
     </div>
 
-    <!-- 未完成订阅区域 -->
+    <!-- 所有订阅区域 -->
     <div class="incomplete-container">
       <div class="wide-container">
         <section class="incomplete-section">
@@ -415,7 +415,7 @@
                 <circle cx="12" cy="12" r="10"></circle>
                 <polyline points="12 6 12 12 16 14"></polyline>
               </svg>
-              未完成订阅
+              所有订阅
               <button onclick="refreshIncompleteSubscriptions()" class="refresh-btn" title="刷新数据">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="23 4 23 10 17 10"></polyline>
@@ -424,13 +424,13 @@
                 </svg>
               </button>
             </h2>
-            <p class="section-subtitle">订阅了但还有缺集或未更新完的剧集</p>
+            <p class="section-subtitle">查看所有已订阅的电影和剧集</p>
           </div>
           <div id="incompleteSubscriptions" class="incomplete-list">
             <!-- 加载中 -->
             <div class="loading-spinner">
               <div class="spinner"></div>
-              <p>正在检查订阅...</p>
+              <p>正在加载订阅...</p>
             </div>
           </div>
           <div id="incompletePagination" class="incomplete-pagination"></div>
@@ -841,6 +841,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=37"></script>
+  <script src="script.js?v=45"></script>
 </body>
 </html>
