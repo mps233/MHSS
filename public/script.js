@@ -288,6 +288,22 @@ Promise.all([
   console.error('加载页面数据失败:', error);
 });
 
+// 定期检查是否有新订阅（每30秒检查一次）
+setInterval(async () => {
+  try {
+    const response = await fetchWithAuth('/api/settings/auto-search-new/has-new');
+    const data = await response.json();
+    
+    if (data.hasNew) {
+      console.log('🆕 检测到新订阅，自动刷新订阅列表...');
+      // 自动刷新订阅列表
+      await loadIncompleteSubscriptions(true);
+    }
+  } catch (error) {
+    // 静默失败，不影响用户体验
+  }
+}, 30 * 1000); // 30秒
+
 // 桌面端下拉菜单
 setTimeout(() => {
   const statusLink = document.getElementById('statusLink');
@@ -1492,7 +1508,7 @@ async function selectMovie(id, title, mediaType, buttonElement, movieData = null
       
       // 更新 title 显示链接数量
       if (data.hdhiveLinksCount > 0) {
-        buttonElement.title = `已请求 (${data.hdhiveLinksCount} 个免费链接)`;
+        buttonElement.title = `已请求 (${data.hdhiveLinksCount} 个可用链接)`;
       } else {
         buttonElement.title = '已请求';
       }
@@ -1504,6 +1520,11 @@ async function selectMovie(id, title, mediaType, buttonElement, movieData = null
         setTimeout(() => {
           refreshIncompleteSubscriptions();
         }, 2000);
+        
+        // 如果开启了新订阅自动查找
+        if (data.autoSearchTriggered) {
+          console.log(`🔍 新订阅自动查找已触发，将监控 MediaHelper 执行状态...`);
+        }
       }
       
       // 重新加载统计和热门内容（保持当前页码）
@@ -1856,9 +1877,383 @@ if (mobileLogoutBtn) {
 
 
 // HDHive 批量查找日志
+let currentLogTab = 'batch'; // 当前显示的日志标签页
+
 function toggleLogPanel() {
   const panel = document.getElementById('logPanel');
   panel.classList.toggle('active');
+  
+  // 打开面板时加载对应标签页的日志
+  if (panel.classList.contains('active')) {
+    // 重置计数器，强制重新渲染
+    lastAutoSearchLogCount = -1;
+    lastAutoSearchTaskCount = -1;
+    lastBatchSearchLogCount = -1;
+    lastBatchSearchProgress = -1;
+    lastBatchSearchCurrent = null;
+    
+    loadLogsByTab(currentLogTab);
+    
+    // 如果是新订阅监控标签页，启动自动刷新
+    if (currentLogTab === 'auto') {
+      if (autoSearchLogInterval) {
+        clearInterval(autoSearchLogInterval);
+      }
+      let tickCount = 0;
+      autoSearchLogInterval = setInterval(() => {
+        if (currentLogTab === 'auto') {
+          tickCount++;
+          // 每秒更新倒计时显示
+          updateCountdownDisplay();
+          
+          // 每3秒重新加载完整数据
+          if (tickCount >= 3) {
+            tickCount = 0;
+            loadAutoSearchNewLogs();
+          }
+        }
+      }, 1000);
+    }
+  } else {
+    // 关闭面板时停止自动刷新
+    if (autoSearchLogInterval) {
+      clearInterval(autoSearchLogInterval);
+      autoSearchLogInterval = null;
+    }
+  }
+}
+
+// 切换日志标签页
+function switchLogTab(tab) {
+  console.log('切换标签页:', tab, '当前标签页:', currentLogTab);
+  currentLogTab = tab;
+  console.log('切换后标签页:', currentLogTab);
+  
+  // 更新标签页样式
+  document.querySelectorAll('.log-tab').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  // 根据tab参数直接设置active
+  const tabs = document.querySelectorAll('.log-tab');
+  if (tab === 'batch' && tabs[0]) {
+    tabs[0].classList.add('active');
+  } else if (tab === 'auto' && tabs[1]) {
+    tabs[1].classList.add('active');
+  }
+  
+  // 停止自动刷新
+  if (autoSearchLogInterval) {
+    clearInterval(autoSearchLogInterval);
+    autoSearchLogInterval = null;
+  }
+  
+  // 重置计数器，强制重新渲染
+  lastAutoSearchLogCount = -1; // 设置为-1强制重新渲染
+  lastAutoSearchTaskCount = -1;
+  lastBatchSearchLogCount = -1;
+  lastBatchSearchProgress = -1;
+  lastBatchSearchCurrent = null;
+  
+  // 加载对应的日志
+  loadLogsByTab(tab);
+  
+  // 如果切换到新订阅监控标签页，启动自动刷新
+  if (tab === 'auto') {
+    let tickCount = 0;
+    autoSearchLogInterval = setInterval(() => {
+      if (currentLogTab === 'auto') {
+        tickCount++;
+        // 每秒更新倒计时显示
+        updateCountdownDisplay();
+        
+        // 每3秒重新加载完整数据
+        if (tickCount >= 3) {
+          tickCount = 0;
+          loadAutoSearchNewLogs();
+        }
+      }
+    }, 1000); // 每秒执行一次
+  }
+}
+
+// 更新倒计时显示（不重新加载数据）
+function updateCountdownDisplay() {
+  // 更新新订阅检测倒计时
+  const checkCountdownEl = document.getElementById('checkCountdown');
+  if (checkCountdownEl) {
+    const currentText = checkCountdownEl.textContent;
+    const parts = currentText.split(':');
+    if (parts.length === 2) {
+      let minutes = parseInt(parts[0]);
+      let seconds = parseInt(parts[1]);
+      
+      // 倒计时减1秒
+      if (seconds > 0) {
+        seconds--;
+      } else if (minutes > 0) {
+        minutes--;
+        seconds = 59;
+      }
+      
+      checkCountdownEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+  }
+  
+  // 更新所有监控任务的倒计时
+  const monitoringTasks = document.querySelectorAll('.monitoring-task');
+  monitoringTasks.forEach(taskEl => {
+    const infoDiv = taskEl.querySelector('.log-item-info');
+    if (infoDiv) {
+      const text = infoDiv.textContent;
+      // 匹配 "下次检查: X:XX" 格式
+      const match = text.match(/下次检查:\s*(\d+):(\d+)/);
+      if (match) {
+        let minutes = parseInt(match[1]);
+        let seconds = parseInt(match[2]);
+        
+        // 倒计时减1秒
+        if (seconds > 0) {
+          seconds--;
+        } else if (minutes > 0) {
+          minutes--;
+          seconds = 59;
+        } else {
+          // 倒计时到0，保持0:00
+          minutes = 0;
+          seconds = 0;
+        }
+        
+        const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        const newText = text.replace(/下次检查:\s*\d+:\d+/, `下次检查: ${timeStr}`);
+        infoDiv.textContent = newText;
+      }
+    }
+  });
+}
+
+// 根据标签页加载日志
+async function loadLogsByTab(tab) {
+  const content = document.getElementById('logPanelContent');
+  
+  // 只在内容为空时显示加载中
+  if (content.children.length === 0) {
+    content.innerHTML = '<div class="log-empty">加载中...</div>';
+  }
+  
+  if (tab === 'batch') {
+    // 加载批量查找日志
+    await loadBatchSearchLogs();
+  } else if (tab === 'auto') {
+    // 加载新订阅自动查找日志
+    await loadAutoSearchNewLogs();
+  }
+}
+
+// 加载批量查找日志
+async function loadBatchSearchLogs() {
+  const content = document.getElementById('logPanelContent');
+  
+  try {
+    const response = await fetchWithAuth('/api/hdhive/batch-search/status');
+    const data = await response.json();
+    
+    content.innerHTML = '';
+    
+    // 显示进度（如果任务正在运行）
+    if (data.running && data.current) {
+      const progressDiv = document.createElement('div');
+      progressDiv.className = 'log-item info batch-progress-info';
+      progressDiv.innerHTML = `
+        <div class="log-item-title">正在查找: ${escapeHtml(data.current)}</div>
+        <div class="log-item-info">进度: ${data.progress}/${data.total}</div>
+      `;
+      content.appendChild(progressDiv);
+    }
+    
+    // 显示日志
+    if (data.logs && data.logs.length > 0) {
+      data.logs.forEach(log => {
+        // 跳过 searching 状态的日志
+        if (log.status === 'searching') {
+          return;
+        }
+        
+        const logTime = new Date(log.time);
+        const timeStr = `${logTime.getHours().toString().padStart(2, '0')}:${logTime.getMinutes().toString().padStart(2, '0')}:${logTime.getSeconds().toString().padStart(2, '0')}`;
+        
+        const logItem = document.createElement('div');
+        logItem.className = `log-item ${log.status}`;
+        logItem.innerHTML = `
+          <div class="log-item-title">${escapeHtml(log.title)}</div>
+          <div class="log-item-info">${escapeHtml(log.message)}</div>
+          <div class="log-item-time">${timeStr}</div>
+        `;
+        content.appendChild(logItem); // 使用 appendChild 保持服务器端的顺序
+      });
+    }
+    
+    if (content.children.length === 0) {
+      content.innerHTML = '<div class="log-empty">暂无日志</div>';
+    }
+  } catch (error) {
+    console.error('加载批量查找日志失败:', error);
+    content.innerHTML = '<div class="log-empty">加载失败</div>';
+  }
+}
+
+// 加载新订阅自动查找日志
+let autoSearchLogInterval = null;
+let lastAutoSearchLogCount = 0;
+let lastAutoSearchTaskCount = 0;
+
+async function loadAutoSearchNewLogs() {
+  console.log('开始加载新订阅监控日志');
+  const content = document.getElementById('logPanelContent');
+  
+  try {
+    // 获取监控任务状态
+    const statusResponse = await fetchWithAuth('/api/settings/auto-search-new/status');
+    const statusData = await statusResponse.json();
+    console.log('新订阅监控状态数据:', statusData);
+    
+    // 获取日志
+    const logsResponse = await fetchWithAuth('/api/settings/auto-search-new/logs');
+    const logsData = await logsResponse.json();
+    console.log('新订阅监控日志数据:', logsData);
+    
+    // 检查是否有变化
+    const currentLogCount = logsData.logs?.length || 0;
+    const currentTaskCount = statusData.tasks?.length || 0;
+    const hasChanged = currentLogCount !== lastAutoSearchLogCount || 
+                       currentTaskCount !== lastAutoSearchTaskCount;
+    
+    console.log('日志变化检查:', { currentLogCount, lastAutoSearchLogCount, currentTaskCount, lastAutoSearchTaskCount, hasChanged });
+    
+    // 如果没有变化，只更新倒计时，不重新渲染
+    if (!hasChanged && content.children.length > 0) {
+      console.log('日志无变化，只更新倒计时');
+      // 只更新检测倒计时的数值
+      if (statusData.nextSubscriptionCheck && statusData.nextSubscriptionCheck.enabled) {
+        const checkCountdownEl = document.getElementById('checkCountdown');
+        if (checkCountdownEl) {
+          const remainingSeconds = statusData.nextSubscriptionCheck.remainingSeconds || 0;
+          const minutes = Math.floor(remainingSeconds / 60);
+          const seconds = remainingSeconds % 60;
+          const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          checkCountdownEl.textContent = timeStr;
+        }
+      }
+      
+      // 更新监控任务的倒计时
+      if (statusData.tasks && statusData.tasks.length > 0) {
+        statusData.tasks.forEach((task, index) => {
+          const taskElements = document.querySelectorAll('.monitoring-task');
+          if (taskElements[index]) {
+            const minutes = Math.floor(task.remainingSeconds / 60);
+            const seconds = task.remainingSeconds % 60;
+            const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            const infoDiv = taskElements[index].querySelector('.log-item-info');
+            if (infoDiv) {
+              infoDiv.textContent = `检查进度: ${task.checkCount}/${task.maxChecks} | 下次检查: ${timeStr}`;
+            }
+          }
+        });
+      }
+      return;
+    }
+    
+    // 有变化时才重新渲染
+    console.log('日志有变化，重新渲染');
+    lastAutoSearchLogCount = currentLogCount;
+    lastAutoSearchTaskCount = currentTaskCount;
+    
+    content.innerHTML = '';
+    
+    // 显示新订阅检测倒计时
+    if (statusData.nextSubscriptionCheck && statusData.nextSubscriptionCheck.enabled) {
+      const checkInfo = document.createElement('div');
+      checkInfo.className = 'log-refresh-info subscription-check-info';
+      checkInfo.id = 'subscriptionCheckInfo';
+      
+      const remainingSeconds = statusData.nextSubscriptionCheck.remainingSeconds || 0;
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = remainingSeconds % 60;
+      const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      
+      checkInfo.innerHTML = `<span>🔍 下次检测新订阅: <span id="checkCountdown">${timeStr}</span></span>`;
+      content.appendChild(checkInfo);
+    }
+    
+    // 显示监控任务状态
+    if (statusData.tasks && statusData.tasks.length > 0) {
+      statusData.tasks.forEach(task => {
+        const taskItem = document.createElement('div');
+        taskItem.className = 'log-item info monitoring-task';
+        
+        const minutes = Math.floor(task.remainingSeconds / 60);
+        const seconds = task.remainingSeconds % 60;
+        const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        
+        taskItem.innerHTML = `
+          <div class="log-item-title">🔄 监控中: ${escapeHtml(task.title)}</div>
+          <div class="log-item-info">检查进度: ${task.checkCount}/${task.maxChecks} | 下次检查: ${timeStr}</div>
+        `;
+        
+        content.appendChild(taskItem);
+      });
+    }
+    
+    // 显示日志
+    if (logsData.logs && logsData.logs.length > 0) {
+      logsData.logs.forEach(log => {
+        const logTime = new Date(log.timestamp);
+        const timeStr = `${logTime.getHours().toString().padStart(2, '0')}:${logTime.getMinutes().toString().padStart(2, '0')}:${logTime.getSeconds().toString().padStart(2, '0')}`;
+        addLogWithTime(log.title, log.info, log.type, timeStr);
+      });
+    }
+    
+    const hasCheckInfo = statusData.nextSubscriptionCheck?.enabled ? 1 : 0;
+    const hasContent = (statusData.tasks?.length || 0) + (logsData.logs?.length || 0);
+    
+    if (hasContent === 0) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'log-empty';
+      emptyDiv.textContent = '暂无日志';
+      content.appendChild(emptyDiv);
+    }
+  } catch (error) {
+    console.error('加载自动查找日志失败:', error);
+    content.innerHTML = '<div class="log-empty">加载失败</div>';
+  }
+}
+
+// 添加带时间的日志
+function addLogWithTime(title, info, type, timeStr) {
+  const content = document.getElementById('logPanelContent');
+  
+  // 移除空状态
+  const empty = content.querySelector('.log-empty');
+  if (empty) {
+    empty.remove();
+  }
+  
+  const logItem = document.createElement('div');
+  logItem.className = `log-item ${type}`;
+  
+  logItem.innerHTML = `
+    <div class="log-item-title">${escapeHtml(title)}</div>
+    <div class="log-item-info">${escapeHtml(info)}</div>
+    <div class="log-item-time">${timeStr}</div>
+  `;
+  
+  content.insertBefore(logItem, content.firstChild);
+  
+  // 限制日志数量
+  const logs = content.querySelectorAll('.log-item');
+  if (logs.length > 100) {
+    logs[logs.length - 1].remove();
+  }
 }
 
 // 点击日志面板外部关闭
@@ -1870,9 +2265,22 @@ document.addEventListener('click', function(event) {
   if (panel && panel.classList.contains('active')) {
     if (!panel.contains(event.target) && !logBtn.contains(event.target)) {
       panel.classList.remove('active');
+      // 停止轮询
+      if (autoSearchLogInterval) {
+        clearInterval(autoSearchLogInterval);
+        autoSearchLogInterval = null;
+      }
     }
   }
 });
+
+// 定期刷新日志（当面板打开时）
+setInterval(() => {
+  const panel = document.getElementById('logPanel');
+  if (panel && panel.classList.contains('active')) {
+    loadLogsByTab(currentLogTab);
+  }
+}, 10000); // 每10秒刷新一次
 
 function addLog(title, info, type = 'info') {
   const content = document.getElementById('logPanelContent');
@@ -1974,6 +2382,19 @@ async function loadSchedulerStatus() {
     } else {
       nextRun.textContent = '-';
     }
+    
+    // 加载新订阅自动查找状态
+    const autoSearchNewResponse = await fetchWithAuth('/api/settings/auto-search-new');
+    const autoSearchNewData = await autoSearchNewResponse.json();
+    
+    const autoSearchNewToggle = document.getElementById('autoSearchNewToggle');
+    const autoSearchNewBadge = document.getElementById('autoSearchNewBadge');
+    
+    if (autoSearchNewToggle && autoSearchNewBadge) {
+      autoSearchNewToggle.checked = autoSearchNewData.enabled;
+      autoSearchNewBadge.textContent = autoSearchNewData.enabled ? '✓ 已启用' : '未启用';
+      autoSearchNewBadge.className = autoSearchNewData.enabled ? 'status-badge active' : 'status-badge inactive';
+    }
   } catch (error) {
     console.error('加载定时任务状态失败:', error);
   }
@@ -2003,6 +2424,39 @@ async function toggleAutoSearch(enabled) {
     console.error('切换定时任务失败:', error);
     // 恢复开关状态
     document.getElementById('autoSearchToggle').checked = !enabled;
+  }
+}
+
+// 切换新订阅自动查找
+async function toggleAutoSearchNew(enabled) {
+  try {
+    const response = await fetchWithAuth('/api/settings/auto-search-new', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ enabled })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // 更新状态显示
+      const badge = document.getElementById('autoSearchNewBadge');
+      if (badge) {
+        badge.textContent = enabled ? '✓ 已启用' : '未启用';
+        badge.className = enabled ? 'status-badge active' : 'status-badge inactive';
+      }
+      console.log(`新订阅自动查找已${enabled ? '启用' : '禁用'}`);
+    } else {
+      console.error('操作失败:', data.error);
+      // 恢复开关状态
+      document.getElementById('autoSearchNewToggle').checked = !enabled;
+    }
+  } catch (error) {
+    console.error('切换新订阅自动查找失败:', error);
+    // 恢复开关状态
+    document.getElementById('autoSearchNewToggle').checked = !enabled;
   }
 }
 
@@ -2181,6 +2635,7 @@ async function batchSearchHDHive() {
 // 批量查找任务状态
 let batchSearchPollingInterval = null;
 let isTaskRunning = false;
+let lastBatchSearchLogCount = 0; // 记录上次的日志数量
 
 function startBatchSearchPolling() {
   if (batchSearchPollingInterval) {
@@ -2188,6 +2643,7 @@ function startBatchSearchPolling() {
   }
   
   isTaskRunning = true;
+  lastBatchSearchLogCount = 0; // 重置日志计数
   console.log('🚀 开始轮询任务状态, isTaskRunning =', isTaskRunning);
   updateTaskRunButton(); // 更新按钮状态
   
@@ -2204,6 +2660,7 @@ function startBatchSearchPolling() {
         clearInterval(batchSearchPollingInterval);
         batchSearchPollingInterval = null;
         isTaskRunning = false;
+        lastBatchSearchLogCount = 0;
         console.log('✅ 任务完成, isTaskRunning =', isTaskRunning);
         updateTaskRunButton(); // 更新按钮状态
       }
@@ -2214,15 +2671,60 @@ function startBatchSearchPolling() {
 }
 
 function updateBatchSearchLogs(status) {
+  // 只在批量查找标签页时更新日志
+  if (currentLogTab !== 'batch') {
+    console.log('跳过批量查找日志更新，当前标签页:', currentLogTab);
+    return;
+  }
+  
   const content = document.getElementById('logPanelContent');
   
-  // 清空现有日志
+  // 检查日志是否有变化（通过日志数量判断）
+  const currentLogCount = status.logs?.length || 0;
+  const hasLogChanged = currentLogCount !== lastBatchSearchLogCount;
+  
+  // 如果日志没变化，只更新进度显示
+  if (!hasLogChanged && content.children.length > 0) {
+    // 确保只有一个进度信息
+    let progressDiv = content.querySelector('.batch-progress-info');
+    
+    if (status.running && status.current) {
+      if (!progressDiv) {
+        // 如果进度div不存在，创建它并插入到最前面
+        progressDiv = document.createElement('div');
+        progressDiv.className = 'log-item info batch-progress-info';
+        content.insertBefore(progressDiv, content.firstChild);
+      }
+      
+      // 更新进度信息
+      progressDiv.innerHTML = `
+        <div class="log-item-title">正在查找: ${escapeHtml(status.current)}</div>
+        <div class="log-item-info">进度: ${status.progress}/${status.total}</div>
+      `;
+    } else if (progressDiv) {
+      // 任务不在运行，移除进度div
+      progressDiv.remove();
+    }
+    
+    // 更新记录的进度
+    lastBatchSearchProgress = status.progress;
+    lastBatchSearchCurrent = status.current;
+    
+    return;
+  }
+  
+  // 日志有变化时才重新渲染整个列表
+  lastBatchSearchLogCount = currentLogCount;
+  lastBatchSearchProgress = status.progress;
+  lastBatchSearchCurrent = status.current;
+  
+  // 清空现有日志（包括旧的进度卡片）
   content.innerHTML = '';
   
   // 显示进度
   if (status.running && status.current) {
     const progressDiv = document.createElement('div');
-    progressDiv.className = 'log-item info';
+    progressDiv.className = 'log-item info batch-progress-info';
     progressDiv.innerHTML = `
       <div class="log-item-title">正在查找: ${escapeHtml(status.current)}</div>
       <div class="log-item-info">进度: ${status.progress}/${status.total}</div>
@@ -2230,27 +2732,38 @@ function updateBatchSearchLogs(status) {
     content.appendChild(progressDiv);
   }
   
-  // 显示日志
-  status.logs.forEach(log => {
-    const logItem = document.createElement('div');
-    logItem.className = `log-item ${log.status}`;
-    
-    const time = new Date(log.time);
-    const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`;
-    
-    logItem.innerHTML = `
-      <div class="log-item-title">${escapeHtml(log.title)}</div>
-      <div class="log-item-info">${escapeHtml(log.message)}</div>
-      <div class="log-item-time">${timeStr}</div>
-    `;
-    
-    content.appendChild(logItem);
-  });
+  // 显示日志（过滤掉 searching 状态的日志，因为进度信息已经显示了）
+  if (status.logs && status.logs.length > 0) {
+    status.logs.forEach(log => {
+      // 跳过 searching 状态的日志
+      if (log.status === 'searching') {
+        return;
+      }
+      
+      const logItem = document.createElement('div');
+      logItem.className = `log-item ${log.status}`;
+      
+      const time = new Date(log.time);
+      const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`;
+      
+      logItem.innerHTML = `
+        <div class="log-item-title">${escapeHtml(log.title)}</div>
+        <div class="log-item-info">${escapeHtml(log.message)}</div>
+        <div class="log-item-time">${timeStr}</div>
+      `;
+      
+      content.appendChild(logItem);
+    });
+  }
   
-  if (status.logs.length === 0 && !status.running) {
+  if ((status.logs?.length || 0) === 0 && !status.running) {
     content.innerHTML = '<div class="log-empty">暂无日志</div>';
   }
 }
+
+// 用于跟踪批量查找状态变化
+let lastBatchSearchProgress = -1;
+let lastBatchSearchCurrent = null;
 
 // 页面加载时检查是否有正在运行的任务
 window.addEventListener('load', async () => {

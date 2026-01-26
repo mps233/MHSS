@@ -154,29 +154,33 @@ def query_hdhive_with_cookie(tmdb_id, media_type, cookie):
             
             log(f"✓ 获取到 {len(resources.resources)} 个资源")
             
-            # 3. 筛选免费的 115 资源
-            free_resources = []
-            for item in resources.resources:
+            # 3. 筛选 115 资源（不管是否免费，都尝试获取）
+            resources_115 = []
+            for idx, item in enumerate(resources.resources):
                 website_val = item.website.value if hasattr(item.website, 'value') else str(item.website)
                 is_free = getattr(item, 'is_free', False)
+                unlock_points = getattr(item, 'unlock_points', None)
                 
-                if website_val == '115' and is_free:
-                    free_resources.append(item)
+                log(f"资源 {idx+1}: website={website_val}, is_free={is_free}, unlock_points={unlock_points}, slug={getattr(item, 'slug', 'N/A')}")
+                
+                # 只要是 115 资源就添加（不管是否免费）
+                if website_val == '115':
+                    resources_115.append(item)
             
-            log(f"✓ 找到 {len(free_resources)} 个免费 115 资源")
+            log(f"✓ 找到 {len(resources_115)} 个 115 资源，尝试获取链接...")
             
-            # 4. 获取分享链接
-            for i, item in enumerate(free_resources):
+            # 4. 获取分享链接（尝试所有115资源，已解锁的会成功）
+            for i, item in enumerate(resources_115):
                 try:
-                    log(f"正在获取第 {i+1}/{len(free_resources)} 个链接...")
+                    log(f"正在获取第 {i+1}/{len(resources_115)} 个链接...")
                     share = client.get_share_url(item.slug)
                     if share and share.url:
                         log(f"✓ 获取成功: {share.url[:60]}...")
                         links.append(share.url)
                     else:
-                        log(f"✗ 未获取到链接")
+                        log(f"✗ 未获取到链接（可能需要解锁）")
                 except Exception as e:
-                    log(f"✗ 获取失败: {type(e).__name__}: {str(e)[:100]}")
+                    log(f"✗ 获取失败（可能需要解锁）: {type(e).__name__}: {str(e)[:100]}")
                     continue
         
         return links

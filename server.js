@@ -36,15 +36,46 @@ if (HDHIVE_ENABLED) {
   }
 }
 
-// 创建带代理的 fetch 函数
-function fetchWithProxy(url, options = {}) {
-  if (proxyAgent && url.startsWith('https://api.tmdb.org')) {
-    return fetch(url, { ...options, agent: proxyAgent });
+// 创建带代理和重试的 fetch 函数
+async function fetchWithProxy(url, options = {}, retries = 3) {
+  const timeout = options.timeout || 10000; // 默认10秒超时
+  
+  for (let i = 0; i < retries; i++) {
+    let timeoutId;
+    try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      const fetchOptions = {
+        ...options,
+        signal: controller.signal
+      };
+      
+      if (proxyAgent && url.startsWith('https://api.tmdb.org')) {
+        fetchOptions.agent = proxyAgent;
+      }
+      
+      const response = await fetch(url, fetchOptions);
+      clearTimeout(timeoutId);
+      
+      return response;
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      
+      // 如果是最后一次重试，抛出错误
+      if (i === retries - 1) {
+        throw error;
+      }
+      
+      // 否则等待后重试
+      const delay = Math.min(1000 * Math.pow(2, i), 5000); // 指数退避，最多5秒
+      console.log(`   ⚠️  请求失败，${delay}ms 后重试 (${i + 1}/${retries})...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
-  return fetch(url, options);
 }
 
-// 查询 HDHive 免费 115 链接（使用 Python 桥接）
+// 查询 HDHive 可用 115 链接（免费 + 已解锁，使用 Python 桥接）
 async function getHDHiveFreeLinks(tmdbId, mediaType) {
   if (!HDHIVE_ENABLED) {
     return [];
@@ -90,7 +121,7 @@ async function getHDHiveFreeLinks(tmdbId, mediaType) {
     
     if (result.success) {
       const links = result.links || [];
-      console.log(`🎉 HDHive: 查询完成，找到 ${links.length} 个免费链接\n`);
+      console.log(`🎉 HDHive: 查询完成，找到 ${links.length} 个链接（免费或已解锁）\n`);
       return links;
     } else {
       console.error(`❌ HDHive: 查询失败: ${result.error}\n`);
@@ -197,6 +228,372 @@ const EMBY_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 let trendsCacheData = null;
 let trendsCacheExpiry = 0;
 const TRENDS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+
+// 新订阅自动查找设置
+const AUTO_SEARCH_NEW_FILE = 'auto_search_new.json';
+let autoSearchNewEnabled = false;
+
+// 新订阅自动查找日志
+let autoSearchNewLogs = [];
+const MAX_AUTO_SEARCH_LOGS = 100;
+
+// 监控任务状态管理
+const monitoringTasks = new Map(); // key: uuid, value: { title, checkCount, maxChecks, nextCheckTime, status }
+
+// 已知的订阅列表（用于检测新订阅）
+let knownSubscriptions = new Set();
+let newSubscriptionCheckInterval = null;
+let nextNewSubscriptionCheckTime = null; // 下次检测时间
+let hasNewSubscriptionFlag = false; // 标记是否有新订阅
+
+// 添加自动查找日志
+function addAutoSearchLog(title, info, type = 'info') {
+  const log = {
+    title,
+    info,
+    type,
+    timestamp: new Date().toISOString()
+  };
+  autoSearchNewLogs.unshift(log);
+  
+  // 限制日志数量
+  if (autoSearchNewLogs.length > MAX_AUTO_SEARCH_LOGS) {
+    autoSearchNewLogs = autoSearchNewLogs.slice(0, MAX_AUTO_SEARCH_LOGS);
+  }
+}
+
+// 检测新订阅并自动查找
+async function checkForNewSubscriptions() {
+  if (!autoSearchNewEnabled || !HDHIVE_ENABLED) {
+    return;
+  }
+  
+  try {
+    // 获取所有订阅（强制刷新缓存以检测新订阅）
+    const mhData = await getMediaHelperSubscriptions(true);
+    if (!mhData || !mhData.subscriptions) {
+      return;
+    }
+    
+    const allSubscriptions = mhData.subscriptions.filter(sub => {
+      const params = sub.params || {};
+      return params.media_type === 'tv' || params.media_type === 'movie';
+    });
+    
+    let hasNewSubscription = false;
+    
+    // 检测新订阅
+    for (const sub of allSubscriptions) {
+      const subId = sub.uuid;
+      
+      // 如果是新订阅
+      if (!knownSubscriptions.has(subId)) {
+        knownSubscriptions.add(subId);
+        hasNewSubscription = true;
+        
+        const params = sub.params || {};
+        const title = params.title || params.custom_name || sub.name;
+        const mediaType = params.media_type;
+        const tmdbId = params.tmdb_id;
+        
+        console.log(`🆕 检测到新订阅: ${title} (${mediaType})`);
+        addAutoSearchLog(
+          `检测到新订阅`,
+          `${title} (${mediaType})，开始监控执行状态`,
+          'info'
+        );
+        
+        // 启动监控任务
+        monitorSubscriptionAndSearch(sub, title, mediaType, tmdbId);
+      }
+    }
+    
+    // 如果有新订阅，清除缓存
+    if (hasNewSubscription) {
+      console.log('🔄 检测到新订阅，清除订阅列表缓存');
+      incompleteSubscriptionsPageCache = {};
+      allSubscriptionsCache = null;
+      allSubscriptionsCacheExpiry = 0;
+      hasNewSubscriptionFlag = true; // 设置标记
+    }
+  } catch (error) {
+    console.error('检测新订阅失败:', error);
+  }
+}
+
+// 监控订阅并查找资源
+async function monitorSubscriptionAndSearch(subscription, title, mediaType, tmdbId) {
+  const uuid = subscription.uuid;
+  
+  // 添加到监控任务列表
+  monitoringTasks.set(uuid, {
+    title,
+    checkCount: 0,
+    maxChecks: 60,
+    nextCheckTime: Date.now() + 60000,
+    status: 'monitoring'
+  });
+  
+  try {
+    // 轮询检查订阅状态，最多检查60次（每次间隔1分钟，总共60分钟）
+    let checkCount = 0;
+    const maxChecks = 60;
+    const checkInterval = 60000; // 1分钟
+    
+    const checkSubscriptionStatus = async () => {
+      checkCount++;
+      
+      // 更新任务状态
+      const task = monitoringTasks.get(uuid);
+      if (task) {
+        task.checkCount = checkCount;
+        task.nextCheckTime = Date.now() + checkInterval;
+      }
+      
+      // 重新获取订阅信息
+      const mhData = await getMediaHelperSubscriptions();
+      if (!mhData || !mhData.subscriptions) {
+        return false;
+      }
+      
+      const sub = mhData.subscriptions.find(s => s.uuid === subscription.uuid);
+      if (!sub) {
+        console.log(`   ❌ 订阅已被删除: ${title}`);
+        addAutoSearchLog(
+          `新订阅监控 - ${title}`,
+          `订阅已被删除，停止监控`,
+          'warning'
+        );
+        monitoringTasks.delete(uuid);
+        return true;
+      }
+      
+      const executionStatus = sub.execution_status;
+      console.log(`   [${checkCount}/${maxChecks}] ${title} 执行状态: ${executionStatus || '未知'}`);
+      
+      if (executionStatus === 'success') {
+        console.log(`   ✅ ${title} MediaHelper 执行成功`);
+        
+        addAutoSearchLog(
+          `新订阅监控 - ${title}`,
+          `MediaHelper 执行成功，检查资源状态`,
+          'success'
+        );
+        
+        // 检查是否需要查找
+        let needSearch = false;
+        
+        if (mediaType === 'tv' && sub.episodes && Array.isArray(sub.episodes) && sub.episodes.length > 0) {
+          const episodeData = sub.episodes[0];
+          let subscribedEpisodes = 0;
+          let tmdbTotalEpisodes = 0;
+          
+          if (episodeData.episodes_arr) {
+            Object.values(episodeData.episodes_arr).forEach(seasonEpisodes => {
+              subscribedEpisodes += seasonEpisodes.length;
+            });
+          }
+          
+          if (episodeData.episodes_count) {
+            Object.values(episodeData.episodes_count).forEach(seasonData => {
+              if (seasonData.count) {
+                tmdbTotalEpisodes += seasonData.count;
+              }
+            });
+          }
+          
+          needSearch = subscribedEpisodes < tmdbTotalEpisodes;
+          console.log(`   📊 电视剧状态: ${subscribedEpisodes}/${tmdbTotalEpisodes} 集，${needSearch ? '需要查找' : '已完成'}`);
+          addAutoSearchLog(
+            `新订阅监控 - ${title}`,
+            `电视剧状态: ${subscribedEpisodes}/${tmdbTotalEpisodes} 集，${needSearch ? '缺集，开始查找' : '已完成'}`,
+            needSearch ? 'info' : 'success'
+          );
+        } else if (mediaType === 'movie') {
+          // 电影：检查 episodes 数组是否有实际的集数数据
+          const hasEpisodes = sub.episodes && Array.isArray(sub.episodes) && sub.episodes.length > 0;
+          let hasValidEpisodes = false;
+          
+          if (hasEpisodes) {
+            const episodeData = sub.episodes[0];
+            // 检查是否有实际的集数数据
+            if (episodeData.episodes_arr && Object.keys(episodeData.episodes_arr).length > 0) {
+              hasValidEpisodes = true;
+            }
+          }
+          
+          needSearch = !hasValidEpisodes;
+          console.log(`   📊 电影状态: ${needSearch ? '未入库，需要查找' : '已入库'}`);
+          addAutoSearchLog(
+            `新订阅监控 - ${title}`,
+            `电影状态: ${needSearch ? '未入库，开始查找' : '已入库'}`,
+            needSearch ? 'info' : 'success'
+          );
+        }
+        
+        if (needSearch) {
+          console.log(`   🔍 开始查找影巢资源...`);
+          const links = await getHDHiveFreeLinks(tmdbId, mediaType);
+          
+          if (links && links.length > 0) {
+            console.log(`   ✓ 找到 ${links.length} 个可用链接`);
+            addAutoSearchLog(
+              `新订阅监控 - ${title}`,
+              `找到 ${links.length} 个可用链接（免费/已解锁）`,
+              'success'
+            );
+            
+            const result = await addLinksToSubscription(sub, links);
+            
+            if (result.added > 0) {
+              addAutoSearchLog(
+                `新订阅监控 - ${title}`,
+                `成功添加 ${result.added} 个新链接`,
+                'success'
+              );
+            } else if (result.duplicate === links.length) {
+              addAutoSearchLog(
+                `新订阅监控 - ${title}`,
+                `全部链接已存在`,
+                'info'
+              );
+            }
+          } else {
+            addAutoSearchLog(
+              `新订阅监控 - ${title}`,
+              `未找到可用链接`,
+              'warning'
+            );
+          }
+        }
+        
+        monitoringTasks.delete(uuid);
+        return true;
+      } else if (executionStatus === 'failed') {
+        addAutoSearchLog(
+          `新订阅监控 - ${title}`,
+          `MediaHelper 执行失败，停止监控`,
+          'error'
+        );
+        monitoringTasks.delete(uuid);
+        return true;
+      } else {
+        if (checkCount % 5 === 0) {
+          addAutoSearchLog(
+            `新订阅监控 - ${title}`,
+            `[${checkCount}/${maxChecks}] 等待执行完成 (状态: ${executionStatus || '未知'})`,
+            'info'
+          );
+        }
+        return false;
+      }
+    };
+    
+    // 开始轮询
+    while (checkCount < maxChecks) {
+      const completed = await checkSubscriptionStatus();
+      if (completed) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+    
+    if (checkCount >= maxChecks) {
+      addAutoSearchLog(
+        `新订阅监控 - ${title}`,
+        `已达到最大检查次数（60分钟），停止监控`,
+        'warning'
+      );
+      monitoringTasks.delete(uuid);
+    }
+  } catch (error) {
+    console.error(`监控订阅失败:`, error);
+    addAutoSearchLog(
+      `新订阅监控 - ${title}`,
+      `监控失败: ${error.message}`,
+      'error'
+    );
+    monitoringTasks.delete(uuid);
+  }
+}
+
+// 启动新订阅检测
+function startNewSubscriptionCheck() {
+  if (newSubscriptionCheckInterval) {
+    clearInterval(newSubscriptionCheckInterval);
+  }
+  
+  // 初始化已知订阅列表
+  getMediaHelperSubscriptions().then(mhData => {
+    if (mhData && mhData.subscriptions) {
+      mhData.subscriptions.forEach(sub => {
+        knownSubscriptions.add(sub.uuid);
+      });
+      console.log(`📋 已加载 ${knownSubscriptions.size} 个已知订阅`);
+    }
+  }).catch(err => {
+    console.error('初始化订阅列表失败:', err);
+  });
+  
+  // 设置下次检测时间
+  nextNewSubscriptionCheckTime = Date.now() + 60 * 1000;
+  
+  // 每1分钟检查一次新订阅
+  newSubscriptionCheckInterval = setInterval(() => {
+    checkForNewSubscriptions();
+    // 更新下次检测时间
+    nextNewSubscriptionCheckTime = Date.now() + 60 * 1000;
+  }, 60 * 1000);
+  console.log('🔍 新订阅检测已启动（每1分钟检查一次）');
+}
+
+// 停止新订阅检测
+function stopNewSubscriptionCheck() {
+  if (newSubscriptionCheckInterval) {
+    clearInterval(newSubscriptionCheckInterval);
+    newSubscriptionCheckInterval = null;
+  }
+  console.log('🔍 新订阅检测已停止');
+}
+
+// 加载新订阅自动查找设置
+function loadAutoSearchNewSetting() {
+  try {
+    if (fs.existsSync(AUTO_SEARCH_NEW_FILE)) {
+      const data = fs.readFileSync(AUTO_SEARCH_NEW_FILE, 'utf8');
+      const saved = JSON.parse(data);
+      autoSearchNewEnabled = saved.enabled || false;
+      console.log(`📋 新订阅自动查找设置已加载: ${autoSearchNewEnabled ? '已启用' : '未启用'}`);
+      
+      // 如果启用，启动检测
+      if (autoSearchNewEnabled && HDHIVE_ENABLED) {
+        startNewSubscriptionCheck();
+      }
+    }
+  } catch (error) {
+    console.error('加载新订阅自动查找设置失败:', error);
+  }
+}
+
+function saveAutoSearchNewSetting() {
+  try {
+    fs.writeFileSync(AUTO_SEARCH_NEW_FILE, JSON.stringify({
+      enabled: autoSearchNewEnabled
+    }, null, 2));
+    
+    // 根据状态启动或停止检测
+    if (autoSearchNewEnabled && HDHIVE_ENABLED) {
+      startNewSubscriptionCheck();
+    } else {
+      stopNewSubscriptionCheck();
+    }
+  } catch (error) {
+    console.error('保存新订阅自动查找设置失败:', error);
+  }
+}
+
+// 启动时加载设置
+loadAutoSearchNewSetting();
 
 // 获取 MediaHelper 默认配置
 async function getMediaHelperDefaults() {
@@ -483,7 +880,7 @@ async function createMediaHelperSubscription(movieData, hdhiveLinks = []) {
     quality_preference: 'auto',
     custom_name: title,
     selected_seasons: [],
-    user_custom_links: hdhiveLinks  // HDHive 免费 115 链接
+    user_custom_links: hdhiveLinks  // HDHive 可用 115 链接（免费 + 已解锁）
   };
 
   // 使用 MediaHelper 的默认配置
@@ -2290,15 +2687,8 @@ app.post('/api/hdhive/batch-search', requireAuth, async (req, res) => {
       skipped: skippedSubscriptions.length
     };
     
-    // 添加跳过的日志
-    for (const skipped of skippedSubscriptions) {
-      batchSearchTask.logs.unshift({
-        time: new Date().toISOString(),
-        title: skipped.title,
-        status: 'info',
-        message: `⏭️ 跳过: ${skipped.reason}`
-      });
-    }
+    // 不添加跳过的日志到列表中，只在结果统计中显示
+    // 这样可以避免日志列表被大量"已跳过"的项目占据
     
     // 立即返回，任务在后台运行
     res.json({ 
@@ -2394,7 +2784,7 @@ app.post('/api/hdhive/batch-search', requireAuth, async (req, res) => {
           } else {
             batchSearchTask.results.fail++;
             log.status = 'error';
-            log.message = '未找到免费链接';
+            log.message = '未找到可用链接';
           }
         } catch (error) {
           batchSearchTask.results.fail++;
@@ -2477,6 +2867,63 @@ app.post('/api/hdhive/batch-search/stop', requireAuth, (req, res) => {
   }
 });
 
+// 新订阅自动查找 API
+app.get('/api/settings/auto-search-new', requireAuth, (req, res) => {
+  res.json({ enabled: autoSearchNewEnabled });
+});
+
+app.post('/api/settings/auto-search-new', requireAuth, (req, res) => {
+  try {
+    const { enabled } = req.body;
+    autoSearchNewEnabled = enabled;
+    saveAutoSearchNewSetting();
+    res.json({ success: true, enabled: autoSearchNewEnabled });
+  } catch (error) {
+    console.error('切换新订阅自动查找失败:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取新订阅自动查找日志
+app.get('/api/settings/auto-search-new/logs', requireAuth, (req, res) => {
+  res.json({ logs: autoSearchNewLogs });
+});
+
+// 获取监控任务状态
+app.get('/api/settings/auto-search-new/status', requireAuth, (req, res) => {
+  const tasks = Array.from(monitoringTasks.values()).map(task => ({
+    title: task.title,
+    checkCount: task.checkCount,
+    maxChecks: task.maxChecks,
+    nextCheckTime: task.nextCheckTime,
+    status: task.status,
+    remainingSeconds: task.nextCheckTime ? Math.max(0, Math.floor((task.nextCheckTime - Date.now()) / 1000)) : 0
+  }));
+  
+  // 计算下次新订阅检测的剩余时间
+  const nextCheckRemainingSeconds = nextNewSubscriptionCheckTime 
+    ? Math.max(0, Math.floor((nextNewSubscriptionCheckTime - Date.now()) / 1000))
+    : null;
+  
+  res.json({ 
+    tasks,
+    nextSubscriptionCheck: {
+      enabled: autoSearchNewEnabled,
+      nextCheckTime: nextNewSubscriptionCheckTime,
+      remainingSeconds: nextCheckRemainingSeconds
+    }
+  });
+});
+
+// 检查是否有新订阅
+app.get('/api/settings/auto-search-new/has-new', requireAuth, (req, res) => {
+  const hasNew = hasNewSubscriptionFlag;
+  if (hasNew) {
+    hasNewSubscriptionFlag = false; // 重置标记
+  }
+  res.json({ hasNew });
+});
+
 // 发送请求（使用 MediaHelper）
 app.post('/api/request', requireAuth, async (req, res) => {
   const { id, title, mediaType, movieData } = req.body;
@@ -2528,11 +2975,232 @@ app.post('/api/request', requireAuth, async (req, res) => {
     const cacheKey = `${mediaType}_${id}`;
     embyLibraryCache.delete(cacheKey);
     
+    // 检查是否需要自动查找影巢资源
+    let autoSearchTriggered = false;
+    if (autoSearchNewEnabled && HDHIVE_ENABLED) {
+      console.log(`🔍 新订阅自动查找已启用，将监控 MediaHelper 执行状态...`);
+      autoSearchTriggered = true;
+      
+      // 添加日志
+      addAutoSearchLog(
+        `新订阅自动查找`,
+        `开始监控《${title}》的执行状态`,
+        'info'
+      );
+      
+      // 异步执行，不阻塞响应
+      (async () => {
+        try {
+          console.log(`\n🔍 开始监控新订阅《${title}》的执行状态...`);
+          
+          // 等待5秒，确保订阅已经创建完成
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          // 轮询检查订阅状态，最多检查60次（每次间隔1分钟，总共60分钟）
+          let checkCount = 0;
+          const maxChecks = 60;
+          const checkInterval = 60000; // 1分钟
+          
+          const checkSubscriptionStatus = async () => {
+            checkCount++;
+            console.log(`   [${checkCount}/${maxChecks}] 检查订阅状态...`);
+            
+            // 获取订阅列表，找到刚创建的订阅
+            const mhData = await getMediaHelperSubscriptions();
+            if (!mhData || !mhData.subscriptions) {
+              console.log('   ❌ 无法获取订阅列表');
+              addAutoSearchLog(
+                `新订阅自动查找 - ${title}`,
+                `[${checkCount}/${maxChecks}] 无法获取订阅列表`,
+                'error'
+              );
+              return false;
+            }
+            
+            // 查找匹配的订阅
+            const subscription = mhData.subscriptions.find(sub => {
+              const params = sub.params || {};
+              return params.tmdb_id === id && params.media_type === mediaType;
+            });
+            
+            if (!subscription) {
+              console.log(`   ❌ 未找到订阅: ${title}`);
+              addAutoSearchLog(
+                `新订阅自动查找 - ${title}`,
+                `[${checkCount}/${maxChecks}] 未找到订阅`,
+                'error'
+              );
+              return false;
+            }
+            
+            // 检查 execution_status
+            const executionStatus = subscription.execution_status;
+            console.log(`   📋 执行状态: ${executionStatus || '未知'}`);
+            
+            if (executionStatus === 'success') {
+              console.log(`   ✅ MediaHelper 执行成功，检查是否需要查找影巢资源...`);
+              addAutoSearchLog(
+                `新订阅自动查找 - ${title}`,
+                `MediaHelper 执行成功，检查资源状态`,
+                'success'
+              );
+              
+              // 检查是否需要查找（未完成或缺集）
+              const params = subscription.params || {};
+              let needSearch = false;
+              
+              if (mediaType === 'tv' && subscription.episodes && Array.isArray(subscription.episodes) && subscription.episodes.length > 0) {
+                const episodeData = subscription.episodes[0];
+                let subscribedEpisodes = 0;
+                let tmdbTotalEpisodes = 0;
+                
+                if (episodeData.episodes_arr) {
+                  Object.values(episodeData.episodes_arr).forEach(seasonEpisodes => {
+                    subscribedEpisodes += seasonEpisodes.length;
+                  });
+                }
+                
+                if (episodeData.episodes_count) {
+                  Object.values(episodeData.episodes_count).forEach(seasonData => {
+                    if (seasonData.count) {
+                      tmdbTotalEpisodes += seasonData.count;
+                    }
+                  });
+                }
+                
+                needSearch = subscribedEpisodes < tmdbTotalEpisodes;
+                console.log(`   📊 电视剧状态: ${subscribedEpisodes}/${tmdbTotalEpisodes} 集，${needSearch ? '需要查找' : '已完成'}`);
+                addAutoSearchLog(
+                  `新订阅自动查找 - ${title}`,
+                  `电视剧状态: ${subscribedEpisodes}/${tmdbTotalEpisodes} 集，${needSearch ? '缺集，开始查找' : '已完成'}`,
+                  needSearch ? 'info' : 'success'
+                );
+              } else if (mediaType === 'movie') {
+                // 电影：检查 episodes 数组是否有实际的集数数据
+                const hasEpisodes = subscription.episodes && Array.isArray(subscription.episodes) && subscription.episodes.length > 0;
+                let hasValidEpisodes = false;
+                
+                if (hasEpisodes) {
+                  const episodeData = subscription.episodes[0];
+                  // 检查是否有实际的集数数据
+                  if (episodeData.episodes_arr && Object.keys(episodeData.episodes_arr).length > 0) {
+                    hasValidEpisodes = true;
+                  }
+                }
+                
+                needSearch = !hasValidEpisodes;
+                console.log(`   📊 电影状态: ${needSearch ? '未入库，需要查找' : '已入库'}`);
+                addAutoSearchLog(
+                  `新订阅自动查找 - ${title}`,
+                  `电影状态: ${needSearch ? '未入库，开始查找' : '已入库'}`,
+                  needSearch ? 'info' : 'success'
+                );
+              }
+              
+              if (needSearch) {
+                // 查找影巢链接
+                console.log(`   🔍 开始查找影巢资源...`);
+                const links = await getHDHiveFreeLinks(id, mediaType);
+                
+                if (links && links.length > 0) {
+                  console.log(`   ✓ 找到 ${links.length} 个可用链接`);
+                  addAutoSearchLog(
+                    `新订阅自动查找 - ${title}`,
+                    `找到 ${links.length} 个可用链接（免费/已解锁）`,
+                    'success'
+                  );
+                  
+                  const result = await addLinksToSubscription(subscription, links);
+                  
+                  if (result.added > 0) {
+                    console.log(`   ✅ 成功添加 ${result.added} 个新链接到订阅《${title}》`);
+                    addAutoSearchLog(
+                      `新订阅自动查找 - ${title}`,
+                      `成功添加 ${result.added} 个新链接`,
+                      'success'
+                    );
+                  } else if (result.duplicate === links.length) {
+                    console.log(`   - 全部链接已存在`);
+                    addAutoSearchLog(
+                      `新订阅自动查找 - ${title}`,
+                      `全部链接已存在`,
+                      'info'
+                    );
+                  }
+                } else {
+                  console.log(`   - 未找到可用链接`);
+                  addAutoSearchLog(
+                    `新订阅自动查找 - ${title}`,
+                    `未找到可用链接`,
+                    'warning'
+                  );
+                }
+              } else {
+                console.log(`   ⏭️  订阅已完成，无需查找`);
+              }
+              
+              return true; // 完成检查
+            } else if (executionStatus === 'failed') {
+              console.log(`   ❌ MediaHelper 执行失败，停止检查`);
+              addAutoSearchLog(
+                `新订阅自动查找 - ${title}`,
+                `MediaHelper 执行失败，停止监控`,
+                'error'
+              );
+              return true; // 停止检查
+            } else {
+              // 状态为 pending 或其他，继续等待
+              console.log(`   ⏳ 等待 MediaHelper 执行完成...`);
+              if (checkCount % 5 === 0) { // 每5次检查记录一次日志
+                addAutoSearchLog(
+                  `新订阅自动查找 - ${title}`,
+                  `[${checkCount}/${maxChecks}] 等待 MediaHelper 执行完成 (状态: ${executionStatus || '未知'})`,
+                  'info'
+                );
+              }
+              return false; // 继续检查
+            }
+          };
+          
+          // 开始轮询检查
+          while (checkCount < maxChecks) {
+            const completed = await checkSubscriptionStatus();
+            if (completed) {
+              break;
+            }
+            
+            // 等待下一次检查
+            if (checkCount < maxChecks) {
+              await new Promise(resolve => setTimeout(resolve, checkInterval));
+            }
+          }
+          
+          if (checkCount >= maxChecks) {
+            console.log(`   ⏱️  已达到最大检查次数（60分钟），停止监控`);
+            addAutoSearchLog(
+              `新订阅自动查找 - ${title}`,
+              `已达到最大检查次数（60分钟），停止监控`,
+              'warning'
+            );
+          }
+          
+        } catch (error) {
+          console.error(`   ❌ 自动查找失败:`, error.message);
+          addAutoSearchLog(
+            `新订阅自动查找 - ${title}`,
+            `自动查找失败: ${error.message}`,
+            'error'
+          );
+        }
+      })();
+    }
+    
     return res.json({ 
       success: true, 
-      message: `已成功订阅《${title}》${hdhiveLinks.length > 0 ? `（包含 ${hdhiveLinks.length} 个免费链接）` : ''}`,
+      message: `已成功订阅《${title}》${hdhiveLinks.length > 0 ? `（包含 ${hdhiveLinks.length} 个可用链接）` : ''}`,
       method: 'mediahelper',
-      hdhiveLinksCount: hdhiveLinks.length
+      hdhiveLinksCount: hdhiveLinks.length,
+      autoSearchTriggered
     });
   } catch (error) {
     console.error('MediaHelper 订阅失败:', error);
@@ -2646,7 +3314,7 @@ async function startServer() {
   
   // 执行批量查找任务
   async function runScheduledBatchSearch() {
-    console.log('\n⏰ 定时任务触发：开始批量查找 HDHive 链接...');
+    console.log('\n⏰ 定时任务触发：开始批量查找 HDHive 可用链接...');
     
     try {
       // 获取所有订阅
@@ -2747,7 +3415,7 @@ async function startServer() {
               console.log(`   - 全部链接已存在`);
             }
           } else {
-            console.log(`   - 未找到免费链接`);
+            console.log(`   - 未找到可用链接`);
           }
         } catch (error) {
           failCount++;

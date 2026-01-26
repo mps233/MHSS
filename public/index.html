@@ -785,8 +785,12 @@
   <!-- HDHive 查找日志面板 -->
   <div id="logPanel" class="log-panel">
     <div class="log-panel-header">
-      <h3>HDHive 日志</h3>
+      <h3>任务日志</h3>
       <button onclick="toggleLogPanel()" class="log-panel-close">×</button>
+    </div>
+    <div class="log-tabs">
+      <button class="log-tab active" onclick="switchLogTab('batch')">批量查找</button>
+      <button class="log-tab" onclick="switchLogTab('auto')">新订阅监控</button>
     </div>
     <div class="log-panel-content" id="logPanelContent">
       <div class="log-empty">暂无日志</div>
@@ -835,6 +839,32 @@
                 </svg>
                 <span>停止</span>
               </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 任务卡片 2: 新订阅自动查找 -->
+        <div class="task-card">
+          <div class="task-header">
+            <div class="task-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="16"></line>
+                <line x1="8" y1="12" x2="16" y2="12"></line>
+              </svg>
+            </div>
+            <div class="task-info">
+              <h4>新订阅自动查找</h4>
+              <p>订阅后自动查找影巢资源</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoSearchNewToggle" onchange="toggleAutoSearchNew(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="task-status">
+            <div class="task-status-left">
+              <span class="status-badge" id="autoSearchNewBadge">未启用</span>
             </div>
           </div>
         </div>
