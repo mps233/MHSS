@@ -2781,17 +2781,19 @@ h1 {
     font-size: 1.125rem;
   }
 
-  .nav-link:not(#showLogBtn):not(#schedulerBtn) {
+  .nav-link:not(#showLogBtn):not(#schedulerBtn):not(#adminBtn) {
     display: none;
   }
   
   #showLogBtn,
-  #schedulerBtn {
+  #schedulerBtn,
+  #adminBtn {
     padding: 0.5rem;
   }
   
   #showLogBtn span:not(.nav-icon),
-  #schedulerBtn span:not(.nav-icon) {
+  #schedulerBtn span:not(.nav-icon),
+  #adminBtn span:not(.nav-icon) {
     display: none;
   }
 
