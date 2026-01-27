@@ -209,6 +209,57 @@ function saveSessions() {
 
 const sessions = loadSessions(); // 存储用户session
 
+// 用户请求限制
+const USER_REQUEST_LIMIT = 3; // 默认每个用户最多3次请求
+const userRequestCounts = new Map(); // userId -> count
+const userCustomLimits = new Map(); // userId -> customLimit (自定义限制)
+
+// 自定义限制持久化文件
+const USER_LIMITS_FILE = path.join(__dirname, 'user_limits.json');
+
+// 加载自定义限制
+function loadUserLimits() {
+  try {
+    if (fs.existsSync(USER_LIMITS_FILE)) {
+      const data = fs.readFileSync(USER_LIMITS_FILE, 'utf8');
+      const limits = JSON.parse(data);
+      Object.entries(limits).forEach(([userId, limit]) => {
+        userCustomLimits.set(userId, limit);
+      });
+      console.log(`📋 已加载 ${userCustomLimits.size} 个用户的自定义限制`);
+    }
+  } catch (error) {
+    console.error('加载自定义限制失败:', error);
+  }
+}
+
+// 保存自定义限制
+function saveUserLimits() {
+  try {
+    const limits = {};
+    userCustomLimits.forEach((limit, userId) => {
+      limits[userId] = limit;
+    });
+    fs.writeFileSync(USER_LIMITS_FILE, JSON.stringify(limits, null, 2), 'utf8');
+  } catch (error) {
+    console.error('保存自定义限制失败:', error);
+  }
+}
+
+// 防抖保存
+let saveUserLimitsTimer = null;
+function saveUserLimitsDebounced() {
+  if (saveUserLimitsTimer) {
+    clearTimeout(saveUserLimitsTimer);
+  }
+  saveUserLimitsTimer = setTimeout(() => {
+    saveUserLimits();
+  }, 1000);
+}
+
+// 启动时加载自定义限制
+loadUserLimits();
+
 // MediaHelper Token 管理
 let mediaHelperToken = null;
 let mediaHelperTokenExpiry = 0;
@@ -1252,6 +1303,40 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// 请求限制中间件
+function checkRequestLimit(req, res, next) {
+  const userId = req.user.id;
+  
+  // 管理员不受限制
+  if (req.user.isAdmin) {
+    return next();
+  }
+  
+  const currentCount = userRequestCounts.get(userId) || 0;
+  const userLimit = userCustomLimits.get(userId) || USER_REQUEST_LIMIT; // 使用自定义限制或默认限制
+  
+  if (currentCount >= userLimit) {
+    return res.status(429).json({ 
+      error: '已达到请求限制',
+      message: `您已达到${userLimit}次请求限制，请联系管理员重置`,
+      limit: userLimit,
+      current: currentCount
+    });
+  }
+  
+  // 增加请求计数
+  userRequestCounts.set(userId, currentCount + 1);
+  
+  next();
+}
+// 管理员权限中间件
+function requireAdmin(req, res, next) {
+  if (!req.user.isAdmin) {
+    return res.status(403).json({ error: '需要管理员权限' });
+  }
+  next();
+}
+
 // 页面访问控制中间件
 function requireAuthPage(req, res, next) {
   // 允许访问登录页面和静态资源
@@ -1353,6 +1438,12 @@ app.post('/api/login', async (req, res) => {
 
     const data = await response.json();
     
+    console.log('Emby 用户数据:', {
+      userId: data.User.Id,
+      userName: data.User.Name,
+      isAdmin: data.User.Policy?.IsAdministrator || false
+    });
+    
     // 生成session token
     const token = Math.random().toString(36).substring(2) + Date.now().toString(36);
     const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7天
@@ -1360,7 +1451,8 @@ app.post('/api/login', async (req, res) => {
     sessions.set(token, {
       user: {
         id: data.User.Id,
-        name: data.User.Name
+        name: data.User.Name,
+        isAdmin: data.User.Policy?.IsAdministrator || false
       },
       expiresAt
     });
@@ -1380,7 +1472,8 @@ app.post('/api/login', async (req, res) => {
       token,
       user: {
         id: data.User.Id,
-        name: data.User.Name
+        name: data.User.Name,
+        isAdmin: data.User.Policy?.IsAdministrator || false
       }
     });
   } catch (error) {
@@ -1398,6 +1491,105 @@ app.post('/api/logout', (req, res) => {
   }
   res.clearCookie('token');
   res.json({ success: true });
+});
+
+// 获取所有用户请求统计（管理员）
+app.get('/api/admin/user-requests', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    // 获取所有Emby用户
+    const response = await fetch(
+      `${process.env.EMBY_URL}/Users?api_key=${process.env.EMBY_API_KEY}`
+    );
+    const users = await response.json();
+    
+    // 构建用户请求统计
+    const stats = users.map(user => {
+      const isAdmin = user.Policy?.IsAdministrator || false;
+      const userLimit = userCustomLimits.get(user.Id) || USER_REQUEST_LIMIT;
+      const requestCount = userRequestCounts.get(user.Id) || 0;
+      return {
+        id: user.Id,
+        name: user.Name,
+        isAdmin: isAdmin,
+        requestCount: requestCount,
+        limit: userLimit,
+        customLimit: userCustomLimits.get(user.Id) || null, // 自定义限制（null表示使用默认值）
+        remaining: Math.max(0, userLimit - requestCount)
+      };
+    });
+    
+    res.json({ success: true, users: stats, defaultLimit: USER_REQUEST_LIMIT });
+  } catch (error) {
+    console.error('获取用户请求统计失败:', error);
+    res.status(500).json({ error: '获取统计失败' });
+  }
+});
+// 重置用户请求计数（管理员）
+app.post('/api/admin/reset-user-requests', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (userId) {
+      // 重置指定用户
+      userRequestCounts.delete(userId);
+      res.json({ success: true, message: '已重置该用户的请求计数' });
+    } else {
+      // 重置所有用户
+      userRequestCounts.clear();
+      res.json({ success: true, message: '已重置所有用户的请求计数' });
+    }
+  } catch (error) {
+    console.error('重置请求计数失败:', error);
+    res.status(500).json({ error: '重置失败' });
+  }
+});
+
+// 设置用户自定义请求限制（管理员）
+app.post('/api/admin/set-user-limit', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    console.log('收到设置用户限制请求:', req.body);
+    const { userId, limit } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: '缺少用户ID' });
+    }
+    
+    if (limit === null || limit === undefined) {
+      // 删除自定义限制，使用默认值
+      userCustomLimits.delete(userId);
+      saveUserLimitsDebounced(); // 保存到文件
+      console.log(`已恢复用户 ${userId} 为默认限制`);
+      res.json({ success: true, message: '已恢复为默认限制' });
+    } else {
+      // 设置自定义限制
+      const limitNum = parseInt(limit);
+      if (isNaN(limitNum) || limitNum < 0) {
+        return res.status(400).json({ error: '限制值必须是非负整数' });
+      }
+      userCustomLimits.set(userId, limitNum);
+      saveUserLimitsDebounced(); // 保存到文件
+      console.log(`已设置用户 ${userId} 限制为 ${limitNum} 次`);
+      res.json({ success: true, message: `已设置限制为 ${limitNum} 次` });
+    }
+  } catch (error) {
+    console.error('设置用户限制失败:', error);
+    res.status(500).json({ error: '设置失败' });
+  }
+});
+
+// 获取当前用户请求统计
+app.get('/api/user/request-stats', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const currentCount = userRequestCounts.get(userId) || 0;
+  const userLimit = userCustomLimits.get(userId) || USER_REQUEST_LIMIT; // 使用自定义限制或默认限制
+  
+  res.json({
+    success: true,
+    isAdmin: req.user.isAdmin || false,
+    requestCount: currentCount,
+    limit: userLimit,
+    remaining: Math.max(0, userLimit - currentCount)
+  });
 });
 
 // 验证token并检查 Emby 账号状态
@@ -1461,7 +1653,7 @@ app.get('/api/verify', requireAuth, async (req, res) => {
 });
 
 // 搜索 TMDB
-app.get('/api/search', requireAuth, async (req, res) => {
+app.get('/api/search', requireAuth, checkRequestLimit, async (req, res) => {
   const { query } = req.query;
   
   if (!query) {
@@ -3255,7 +3447,7 @@ app.get('/api/settings/auto-search-new/has-new', requireAuth, (req, res) => {
 });
 
 // 发送请求（使用 MediaHelper）
-app.post('/api/request', requireAuth, async (req, res) => {
+app.post('/api/request', requireAuth, checkRequestLimit, async (req, res) => {
   const { id, title, mediaType, movieData } = req.body;
   
   if (!title || !id || !mediaType) {

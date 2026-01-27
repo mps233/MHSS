@@ -25,7 +25,7 @@
       document.documentElement.setAttribute('data-theme', actualTheme);
     })();
   </script>
-  <link rel="stylesheet" href="style.css?v=57">
+  <link rel="stylesheet" href="style.css?v=58">
   <!-- Preconnect to external resources -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
@@ -106,6 +106,15 @@
             </svg>
           </span>
           <span>任务</span>
+        </a>
+        <a href="#" class="nav-link" id="adminBtn" onclick="toggleAdminPanel(); return false;" style="display: none;">
+          <span class="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </span>
+          <span>管理</span>
         </a>
         <a href="#" class="nav-link" id="logoutBtn">
           <span class="nav-icon">
@@ -339,9 +348,13 @@
                 </div>
                 
                 <div class="stats-grid">
-                  <div class="stat-card">
+                  <div class="stat-card" id="todayRequestsCard" style="display: none;">
                     <div class="stat-number" id="totalRequests">0</div>
                     <div class="stat-label">今日请求</div>
+                  </div>
+                  <div class="stat-card" id="remainingSearchesCard" style="display: none;">
+                    <div class="stat-number" id="remainingSearches">3</div>
+                    <div class="stat-label">剩余搜索</div>
                   </div>
                   <div class="stat-card">
                     <div class="stat-number" id="movieCount">∞</div>
@@ -788,10 +801,6 @@
           <h4 class="footer-title">统计信息</h4>
           <div class="footer-stats">
             <div class="footer-stat">
-              <span class="footer-stat-label">今日请求</span>
-              <span class="footer-stat-value" id="footerTodayRequests">0</span>
-            </div>
-            <div class="footer-stat">
               <span class="footer-stat-label">电影库</span>
               <span class="footer-stat-value" id="footerMovieCount">∞</span>
             </div>
@@ -967,6 +976,49 @@
     </div>
   </div>
 
-  <script src="script.js?v=51"></script>
+  <!-- 管理面板 -->
+  <div id="adminPanel" class="log-panel">
+    <div class="log-panel-header">
+      <h3>⚙️ 管理</h3>
+      <button onclick="toggleAdminPanel()" class="log-panel-close">×</button>
+    </div>
+    <div class="log-panel-content" style="padding: 1rem;">
+      <!-- 用户请求统计 -->
+      <div class="admin-section">
+        <div class="admin-section-header">
+          <h4>用户请求统计</h4>
+          <div class="admin-actions">
+            <button class="task-run-btn" onclick="refreshUserStats()" style="font-size: 0.875rem; padding: 0.5rem 0.75rem;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              刷新
+            </button>
+            <button class="task-stop-btn" onclick="resetAllUserRequests()" style="font-size: 0.875rem; padding: 0.5rem 0.75rem;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              重置所有
+            </button>
+          </div>
+        </div>
+        <!-- 搜索框 -->
+        <div class="admin-search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.35-4.35"></path>
+          </svg>
+          <input type="text" id="userSearchInput" placeholder="搜索用户名..." oninput="filterUsers(this.value)">
+        </div>
+        <div id="userStatsContainer" class="user-stats-container">
+          <div class="loading-text">加载中...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js?v=69"></script>
 </body>
 </html>

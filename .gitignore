@@ -6,6 +6,7 @@ sessions.json
 scheduler_state.json
 hdhive_state.json
 auto_search_new.json
+user_limits.json
 
 # Python 缓存
 __pycache__/

@@ -29,6 +29,26 @@ async function verifyToken() {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
+    } else {
+      // 验证成功，检查是否是管理员
+      const data = await response.json();
+      console.log('用户验证数据:', data); // 调试日志
+      
+      if (data.user && data.user.isAdmin) {
+        console.log('检测到管理员权限，显示管理按钮和今日请求'); // 调试日志
+        // 显示管理按钮
+        const adminBtn = document.getElementById('adminBtn');
+        if (adminBtn) {
+          adminBtn.style.display = 'flex';
+        }
+        // 显示今日请求卡片
+        const todayRequestsCard = document.getElementById('todayRequestsCard');
+        if (todayRequestsCard) {
+          todayRequestsCard.style.display = 'block';
+        }
+      } else {
+        console.log('非管理员用户'); // 调试日志
+      }
     }
   } catch (error) {
     console.error('验证失败:', error);
@@ -37,6 +57,9 @@ async function verifyToken() {
 
 // 首次验证
 verifyToken();
+
+// 获取用户请求统计
+fetchUserRequestStats();
 
 // 定期检查账号状态（每5分钟检查一次）
 setInterval(verifyToken, 5 * 60 * 1000);
@@ -55,6 +78,11 @@ async function fetchWithAuth(url, options = {}) {
     localStorage.removeItem('user');
     window.location.href = '/login';
     throw new Error('未授权');
+  }
+  
+  if (response.status === 429) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || '已达到请求限制');
   }
   
   return response;
@@ -128,7 +156,46 @@ themeButtons.forEach(btn => {
 
 // 更新请求计数
 function updateRequestCount(count) {
-  totalRequests.textContent = count;
+  if (totalRequests) {
+    totalRequests.textContent = count;
+  }
+}
+
+// 更新剩余搜索次数
+function updateRemainingSearches(remaining, isAdmin) {
+  const card = document.getElementById('remainingSearchesCard');
+  const number = document.getElementById('remainingSearches');
+  
+  if (isAdmin) {
+    // 管理员不显示限制
+    card.style.display = 'none';
+  } else {
+    card.style.display = 'block';
+    number.textContent = remaining;
+    
+    // 根据剩余次数改变颜色
+    if (remaining <= 2) {
+      number.style.color = '#ef4444'; // 红色
+    } else if (remaining <= 5) {
+      number.style.color = '#f59e0b'; // 橙色
+    } else {
+      number.style.color = ''; // 默认颜色
+    }
+  }
+}
+
+// 获取用户请求统计
+async function fetchUserRequestStats() {
+  try {
+    const response = await fetchWithAuth('/api/user/request-stats');
+    const data = await response.json();
+    
+    if (data.success) {
+      updateRemainingSearches(data.remaining, data.isAdmin);
+    }
+  } catch (error) {
+    console.error('获取请求统计失败:', error);
+  }
 }
 
 // 检查服务状态
@@ -1402,6 +1469,9 @@ async function searchMovies(query) {
     const response = await fetchWithAuth(`/api/search?query=${encodeURIComponent(query)}`);
     const data = await response.json();
     
+    // 刷新剩余搜索次数（搜索会消耗次数）
+    fetchUserRequestStats();
+    
     if (data.results && data.results.length > 0) {
       displaySuggestions(data.results);
     } else {
@@ -1409,7 +1479,15 @@ async function searchMovies(query) {
     }
   } catch (error) {
     console.error('搜索错误:', error);
-    suggestions.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div>搜索失败，请重试</div></div>';
+    
+    // 检查是否是请求限制错误
+    if (error.message && error.message.includes('请求限制')) {
+      suggestions.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div>' + escapeHtml(error.message) + '</div></div>';
+      // 刷新剩余搜索次数显示
+      fetchUserRequestStats();
+    } else {
+      suggestions.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div>搜索失败，请重试</div></div>';
+    }
   }
 }
 
@@ -1531,6 +1609,9 @@ async function selectMovie(id, title, mediaType, buttonElement, movieData = null
       loadEmbyStats();
       loadTrending(currentMoviePage, currentTVPage);
       loadRecentRequests();
+      
+      // 刷新剩余搜索次数
+      fetchUserRequestStats();
     } else {
       throw new Error(data.error || '发送失败');
     }
@@ -1809,7 +1890,6 @@ if (mobileMenuBtn && mobileMenu) {
 // Footer 链接和数据同步
 const footerEmbyLink = document.getElementById('footerEmbyLink');
 const footerStatusLink = document.getElementById('footerStatusLink');
-const footerTodayRequests = document.getElementById('footerTodayRequests');
 const footerMovieCount = document.getElementById('footerMovieCount');
 const footerSeriesCount = document.getElementById('footerSeriesCount');
 
@@ -1838,9 +1918,6 @@ if (footerStatusLink) {
 
 // 更新 Footer 统计数据的函数
 function updateFooterStats() {
-  if (footerTodayRequests) {
-    footerTodayRequests.textContent = totalRequests.textContent;
-  }
   if (footerMovieCount) {
     footerMovieCount.textContent = movieCount.textContent;
   }
@@ -2344,6 +2421,312 @@ document.addEventListener('click', function(event) {
     }
   }
 });
+
+// 管理面板
+function toggleAdminPanel() {
+  const panel = document.getElementById('adminPanel');
+  panel.classList.toggle('active');
+  
+  // 打开时加载用户统计
+  if (panel.classList.contains('active')) {
+    refreshUserStats();
+  }
+}
+
+// 点击管理面板外部关闭
+document.addEventListener('click', function(event) {
+  const panel = document.getElementById('adminPanel');
+  const adminBtn = document.getElementById('adminBtn');
+  
+  if (panel && panel.classList.contains('active')) {
+    const isInsidePanel = panel.contains(event.target);
+    const isAdminBtn = adminBtn && adminBtn.contains(event.target);
+    
+    if (!isInsidePanel && !isAdminBtn) {
+      panel.classList.remove('active');
+    }
+  }
+});
+
+// 刷新用户请求统计
+async function refreshUserStats() {
+  const container = document.getElementById('userStatsContainer');
+  container.innerHTML = '<div class="loading-text">加载中...</div>';
+  
+  try {
+    const response = await fetch('/api/admin/user-requests', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('获取统计失败');
+    }
+    
+    const data = await response.json();
+    displayUserStats(data.users, data.defaultLimit);
+  } catch (error) {
+    console.error('获取用户统计失败:', error);
+    container.innerHTML = '<div class="loading-text">加载失败</div>';
+  }
+}
+
+// 存储所有用户数据（用于搜索过滤）
+let allUsersData = [];
+let userRequestLimit = 10;
+
+// 显示用户统计
+function displayUserStats(users, defaultLimit) {
+  const container = document.getElementById('userStatsContainer');
+  
+  // 保存数据供搜索使用
+  allUsersData = users;
+  userRequestLimit = defaultLimit;
+  
+  if (users.length === 0) {
+    container.innerHTML = '<div class="loading-text">暂无用户数据</div>';
+    return;
+  }
+  
+  container.innerHTML = users.map(user => {
+    const percentage = (user.requestCount / user.limit) * 100;
+    let progressClass = '';
+    if (percentage >= 80) progressClass = 'danger';
+    else if (percentage >= 50) progressClass = 'warning';
+    
+    const hasCustomLimit = user.customLimit !== null && user.customLimit !== undefined;
+    const isUserAdmin = user.isAdmin || false;
+    
+    // 管理员显示无限
+    const limitDisplay = isUserAdmin ? '∞' : user.limit;
+    const countDisplay = isUserAdmin ? `${user.requestCount} / ∞` : `${user.requestCount} / ${user.limit}`;
+    
+    return `
+      <div class="user-stat-item" data-username="${escapeHtml(user.name).toLowerCase()}" data-user-id="${user.id}">
+        <!-- 第一行：用户名和徽章 -->
+        <div class="user-stat-row">
+          <div class="user-stat-info">
+            <div class="user-stat-name ${isUserAdmin ? 'admin-name' : ''}" title="${escapeHtml(user.name)}">${escapeHtml(user.name)}</div>
+            ${isUserAdmin ? '<span class="user-admin-badge">管理员</span>' : ''}
+            ${user.requestCount === 0 ? '' : '<span class="user-stat-badge">已使用</span>'}
+          </div>
+        </div>
+        <!-- 第二行：进度条、数字、按钮 -->
+        <div class="user-stat-row">
+          <div class="user-stat-progress">
+            <div class="progress-bar">
+              <div class="progress-fill ${isUserAdmin ? 'admin-progress' : progressClass}" style="width: ${isUserAdmin ? '100' : percentage}%"></div>
+            </div>
+          </div>
+          <div class="user-stat-count">
+            <div class="count-number">${countDisplay}</div>
+            ${hasCustomLimit && !isUserAdmin ? '<div class="count-label">自定义</div>' : ''}
+          </div>
+          <div class="user-stat-actions">
+            <button class="btn-reset" onclick="resetUserRequests('${user.id}', '${escapeHtml(user.name)}')" ${user.requestCount === 0 ? 'disabled' : ''}>重置</button>
+            ${isUserAdmin ? '' : `
+            <button class="btn-set-limit" onclick="toggleLimitEditor('${user.id}')" title="设置限制">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+              </svg>
+            </button>
+            `}
+          </div>
+        </div>
+        ${isUserAdmin ? '' : `
+        <div class="limit-editor" id="limit-editor-${user.id}" style="display: none;">
+          <div class="limit-editor-content">
+            <label>设置请求限制：</label>
+            <input type="number" id="limit-input-${user.id}" value="${user.limit}" min="0" placeholder="留空恢复默认">
+            <div class="limit-editor-actions">
+              <button class="btn-save" onclick="saveLimitChange('${user.id}', '${escapeHtml(user.name)}')">保存</button>
+              <button class="btn-cancel" onclick="cancelLimitEdit('${user.id}')">取消</button>
+            </div>
+          </div>
+        </div>
+        `}
+      </div>
+    `;
+  }).join('');
+}
+
+// 过滤用户
+function filterUsers(searchText) {
+  const items = document.querySelectorAll('.user-stat-item');
+  const search = searchText.toLowerCase().trim();
+  
+  if (!search) {
+    // 显示所有用户
+    items.forEach(item => {
+      item.style.display = 'flex';
+    });
+    return;
+  }
+  
+  // 过滤用户
+  let visibleCount = 0;
+  items.forEach(item => {
+    const username = item.getAttribute('data-username');
+    if (username && username.includes(search)) {
+      item.style.display = 'flex';
+      visibleCount++;
+    } else {
+      item.style.display = 'none';
+    }
+  });
+  
+  // 如果没有匹配的用户，显示提示
+  const container = document.getElementById('userStatsContainer');
+  if (visibleCount === 0 && items.length > 0) {
+    const noResultDiv = document.createElement('div');
+    noResultDiv.className = 'loading-text';
+    noResultDiv.textContent = '未找到匹配的用户';
+    noResultDiv.id = 'noResultMessage';
+    
+    // 移除之前的提示
+    const oldMessage = document.getElementById('noResultMessage');
+    if (oldMessage) oldMessage.remove();
+    
+    container.appendChild(noResultDiv);
+  } else {
+    // 移除"未找到"提示
+    const oldMessage = document.getElementById('noResultMessage');
+    if (oldMessage) oldMessage.remove();
+  }
+}
+
+// 重置指定用户的请求计数
+async function resetUserRequests(userId, userName) {
+  if (!confirm(`确定要重置 ${userName} 的请求计数吗？`)) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/admin/reset-user-requests', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ userId })
+    });
+    
+    if (!response.ok) {
+      throw new Error('重置失败');
+    }
+    
+    alert('重置成功');
+    refreshUserStats();
+  } catch (error) {
+    console.error('重置失败:', error);
+    alert('重置失败，请重试');
+  }
+}
+
+// 重置所有用户的请求计数
+async function resetAllUserRequests() {
+  if (!confirm('确定要重置所有用户的请求计数吗？')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/admin/reset-user-requests', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({})
+    });
+    
+    if (!response.ok) {
+      throw new Error('重置失败');
+    }
+    
+    alert('已重置所有用户的请求计数');
+    refreshUserStats();
+  } catch (error) {
+    console.error('重置失败:', error);
+    alert('重置失败，请重试');
+  }
+}
+
+// 切换限制编辑器
+function toggleLimitEditor(userId) {
+  // 关闭所有其他编辑器
+  document.querySelectorAll('.limit-editor').forEach(editor => {
+    if (editor.id !== `limit-editor-${userId}`) {
+      editor.style.display = 'none';
+    }
+  });
+  
+  // 切换当前编辑器
+  const editor = document.getElementById(`limit-editor-${userId}`);
+  if (editor.style.display === 'none') {
+    editor.style.display = 'block';
+    // 聚焦输入框
+    const input = document.getElementById(`limit-input-${userId}`);
+    if (input) {
+      setTimeout(() => input.focus(), 100);
+    }
+  } else {
+    editor.style.display = 'none';
+  }
+}
+
+// 取消编辑
+function cancelLimitEdit(userId) {
+  const editor = document.getElementById(`limit-editor-${userId}`);
+  if (editor) {
+    editor.style.display = 'none';
+  }
+}
+
+// 保存限制修改
+async function saveLimitChange(userId, userName) {
+  const input = document.getElementById(`limit-input-${userId}`);
+  const newLimit = input.value.trim();
+  
+  let limitValue = null;
+  if (newLimit === '') {
+    // 恢复默认值
+    limitValue = null;
+  } else {
+    limitValue = parseInt(newLimit);
+    if (isNaN(limitValue) || limitValue < 0) {
+      alert('请输入有效的非负整数');
+      return;
+    }
+  }
+  
+  try {
+    const response = await fetchWithAuth('/api/admin/set-user-limit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ userId, limit: limitValue })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || '设置失败');
+    }
+    
+    const data = await response.json();
+    
+    // 关闭编辑器
+    cancelLimitEdit(userId);
+    
+    // 刷新列表
+    refreshUserStats();
+  } catch (error) {
+    console.error('设置限制失败:', error);
+    alert('设置失败：' + error.message);
+  }
+}
 
 // 加载定时任务状态
 async function loadSchedulerStatus() {

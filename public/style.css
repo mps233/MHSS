@@ -4254,3 +4254,391 @@ input:checked + .slider:hover {
     transform: rotate(360deg);
   }
 }
+
+/* 管理面板样式 */
+.admin-section {
+  margin-bottom: 1.5rem;
+}
+
+.admin-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.admin-section-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.admin-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.user-stats-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.user-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+}
+
+.user-stat-item:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.user-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.user-stat-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.user-stat-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-admin-badge {
+  font-size: 0.65rem;
+  color: #10b981;
+  font-weight: 500;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  display: inline-block;
+}
+
+.user-stat-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--purple-500);
+}
+
+.user-stat-progress {
+  flex: 1;
+  max-width: 200px;
+  min-width: 120px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--purple-500);
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.progress-fill.warning {
+  background: #f59e0b;
+}
+
+.progress-fill.danger {
+  background: #ef4444;
+}
+
+.user-stat-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 60px;
+}
+
+.count-number {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.count-label {
+  font-size: 0.65rem;
+  color: var(--purple-500);
+  opacity: 0.8;
+  font-weight: 500;
+}
+
+.user-stat-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 0.375rem;
+  justify-content: flex-end;
+}
+
+.btn-reset {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-reset:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.loading-text {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .user-stat-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  
+  .user-stat-progress {
+    width: 100%;
+    max-width: none;
+  }
+  
+  .user-stat-actions {
+    width: 100%;
+  }
+  
+  .btn-reset {
+    flex: 1;
+  }
+}
+
+/* 管理面板搜索框 */
+.admin-search-box {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.admin-search-box svg {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.admin-search-box input {
+  width: 100%;
+  padding: 0.625rem 0.75rem 0.625rem 2.5rem;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 0.5rem;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.admin-search-box input:focus {
+  outline: none;
+  border-color: var(--purple-500);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.admin-search-box input::placeholder {
+  color: var(--text-secondary);
+}
+
+.btn-reset:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.1);
+}
+
+.btn-reset:disabled:hover {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.1);
+}
+
+.btn-set-limit {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem;
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--purple-500);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-set-limit:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+}
+
+.btn-set-limit svg {
+  display: block;
+}
+
+/* 限制编辑器 */
+.limit-editor {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 0.375rem;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.limit-editor-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.limit-editor-content label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.limit-editor-content input {
+  padding: 0.5rem;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 0.375rem;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.limit-editor-content input:focus {
+  outline: none;
+  border-color: var(--purple-500);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.limit-editor-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-save {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.875rem;
+  background: var(--purple-500);
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.btn-save:hover {
+  background: var(--purple-600);
+  transform: translateY(-1px);
+}
+
+.btn-cancel {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.875rem;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.user-stat-item {
+  flex-wrap: wrap;
+}
+
+.limit-editor {
+  width: 100%;
+}
+
+/* 管理员用户名炫酷特效 */
+.admin-name {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #3b82f6);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 3s linear infinite;
+  font-weight: 600;
+  position: relative;
+}
+
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+/* 管理员进度条特效 */
+.progress-fill.admin-progress {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #3b82f6);
+  background-size: 200% 100%;
+  animation: gradient-shift 3s linear infinite;
+  opacity: 0.7;
+  transition: none;
+}
