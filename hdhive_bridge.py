@@ -175,8 +175,27 @@ def query_hdhive_with_cookie(tmdb_id, media_type, cookie):
                     log(f"正在获取第 {i+1}/{len(resources_115)} 个链接...")
                     share = client.get_share_url(item.slug)
                     if share and share.url:
-                        log(f"✓ 获取成功: {share.url[:60]}...")
-                        links.append(share.url)
+                        # 调试：打印 share 对象的所有属性
+                        log(f"Share 对象属性: {dir(share)}")
+                        log(f"Share 对象内容: url={share.url}")
+                        
+                        # 尝试获取提取码的各种可能字段名
+                        share_code = None
+                        for attr in ['share_code', 'code', 'password', 'pwd', 'extract_code', 'access_code']:
+                            if hasattr(share, attr):
+                                val = getattr(share, attr)
+                                if val:
+                                    share_code = val
+                                    log(f"找到提取码字段 {attr}: {val}")
+                                    break
+                        
+                        if share_code:
+                            full_url = f"{share.url}?password={share_code}"
+                            log(f"✓ 获取成功: {share.url} (提取码: {share_code})")
+                            links.append(full_url)
+                        else:
+                            log(f"✓ 获取成功: {share.url[:60]}... (无提取码)")
+                            links.append(share.url)
                     else:
                         log(f"✗ 未获取到链接（可能需要解锁）")
                 except Exception as e:
