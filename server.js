@@ -214,51 +214,72 @@ const USER_REQUEST_LIMIT = 3; // 默认每个用户最多3次请求
 const userRequestCounts = new Map(); // userId -> count
 const userCustomLimits = new Map(); // userId -> customLimit (自定义限制)
 
-// 自定义限制持久化文件
-const USER_LIMITS_FILE = path.join(__dirname, 'user_limits.json');
+// 用户数据持久化文件（包含限制和计数）
+const USER_DATA_FILE = path.join(__dirname, 'user_data.json');
 
-// 加载自定义限制
-function loadUserLimits() {
+// 加载用户数据
+function loadUserData() {
   try {
-    if (fs.existsSync(USER_LIMITS_FILE)) {
-      const data = fs.readFileSync(USER_LIMITS_FILE, 'utf8');
-      const limits = JSON.parse(data);
-      Object.entries(limits).forEach(([userId, limit]) => {
-        userCustomLimits.set(userId, limit);
-      });
-      console.log(`📋 已加载 ${userCustomLimits.size} 个用户的自定义限制`);
+    if (fs.existsSync(USER_DATA_FILE)) {
+      const data = fs.readFileSync(USER_DATA_FILE, 'utf8');
+      const userData = JSON.parse(data);
+      
+      // 加载自定义限制
+      if (userData.limits) {
+        Object.entries(userData.limits).forEach(([userId, limit]) => {
+          userCustomLimits.set(userId, limit);
+        });
+        console.log(`📋 已加载 ${userCustomLimits.size} 个用户的自定义限制`);
+      }
+      
+      // 加载请求计数
+      if (userData.counts) {
+        Object.entries(userData.counts).forEach(([userId, count]) => {
+          userRequestCounts.set(userId, count);
+        });
+        console.log(`📊 已加载 ${userRequestCounts.size} 个用户的请求计数`);
+      }
     }
   } catch (error) {
-    console.error('加载自定义限制失败:', error);
+    console.error('加载用户数据失败:', error);
   }
 }
 
-// 保存自定义限制
-function saveUserLimits() {
+// 保存用户数据
+function saveUserData() {
   try {
-    const limits = {};
+    const userData = {
+      limits: {},
+      counts: {}
+    };
+    
     userCustomLimits.forEach((limit, userId) => {
-      limits[userId] = limit;
+      userData.limits[userId] = limit;
     });
-    fs.writeFileSync(USER_LIMITS_FILE, JSON.stringify(limits, null, 2), 'utf8');
+    
+    userRequestCounts.forEach((count, userId) => {
+      userData.counts[userId] = count;
+    });
+    
+    fs.writeFileSync(USER_DATA_FILE, JSON.stringify(userData, null, 2), 'utf8');
   } catch (error) {
-    console.error('保存自定义限制失败:', error);
+    console.error('保存用户数据失败:', error);
   }
 }
 
 // 防抖保存
-let saveUserLimitsTimer = null;
-function saveUserLimitsDebounced() {
-  if (saveUserLimitsTimer) {
-    clearTimeout(saveUserLimitsTimer);
+let saveUserDataTimer = null;
+function saveUserDataDebounced() {
+  if (saveUserDataTimer) {
+    clearTimeout(saveUserDataTimer);
   }
-  saveUserLimitsTimer = setTimeout(() => {
-    saveUserLimits();
+  saveUserDataTimer = setTimeout(() => {
+    saveUserData();
   }, 1000);
 }
 
-// 启动时加载自定义限制
-loadUserLimits();
+// 启动时加载用户数据
+loadUserData();
 
 // MediaHelper Token 管理
 let mediaHelperToken = null;
@@ -1326,6 +1347,7 @@ function checkRequestLimit(req, res, next) {
   
   // 增加请求计数
   userRequestCounts.set(userId, currentCount + 1);
+  saveUserDataDebounced(); // 保存到文件
   
   next();
 }
@@ -1532,10 +1554,12 @@ app.post('/api/admin/reset-user-requests', requireAuth, requireAdmin, async (req
     if (userId) {
       // 重置指定用户
       userRequestCounts.delete(userId);
+      saveUserDataDebounced(); // 保存到文件
       res.json({ success: true, message: '已重置该用户的请求计数' });
     } else {
       // 重置所有用户
       userRequestCounts.clear();
+      saveUserDataDebounced(); // 保存到文件
       res.json({ success: true, message: '已重置所有用户的请求计数' });
     }
   } catch (error) {
@@ -1567,7 +1591,7 @@ app.post('/api/admin/set-user-limit', requireAuth, requireAdmin, async (req, res
         return res.status(400).json({ error: '限制值必须是非负整数' });
       }
       userCustomLimits.set(userId, limitNum);
-      saveUserLimitsDebounced(); // 保存到文件
+      saveUserDataDebounced(); // 保存到文件
       console.log(`已设置用户 ${userId} 限制为 ${limitNum} 次`);
       res.json({ success: true, message: `已设置限制为 ${limitNum} 次` });
     }
