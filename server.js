@@ -2152,11 +2152,17 @@ app.get('/api/recent-requests', async (req, res) => {
         const info = sub.subscription_info || {};
         const params = sub.params || {};
         
-        // 处理海报路径 - 可能是完整 URL 或相对路径
+        // 处理海报路径 - 可能是完整 URL、代理路径或相对路径
         let posterUrl = info.poster_path || params.poster_path || null;
-        if (posterUrl && !posterUrl.startsWith('http')) {
-          // 如果是相对路径，添加 TMDB 前缀
-          posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+        if (posterUrl) {
+          if (posterUrl.startsWith('/api/v1/proxy/')) {
+            // MediaHelper 的代理路径，拼接 MediaHelper 域名
+            posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+          } else if (!posterUrl.startsWith('http')) {
+            // 如果是相对路径，添加 TMDB 前缀
+            posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+          }
+          // 如果已经是完整 URL (http:// 或 https://)，直接使用
         }
         
         // 处理时间 - MediaHelper 返回的时间是 UTC 时间但没有 Z 后缀
@@ -2275,8 +2281,15 @@ app.get('/api/incomplete-subscriptions', requireAuth, async (req, res) => {
       const mediaType = params.media_type;
       
       let posterUrl = info.poster_path || params.poster_path || null;
-      if (posterUrl && !posterUrl.startsWith('http')) {
-        posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+      if (posterUrl) {
+        if (posterUrl.startsWith('/api/v1/proxy/')) {
+          // MediaHelper 的代理路径，拼接 MediaHelper 域名
+          posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+        } else if (!posterUrl.startsWith('http')) {
+          // 如果是相对路径，添加 TMDB 前缀
+          posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+        }
+        // 如果已经是完整 URL，直接使用
       }
       
       // 从 MediaHelper 的 episodes 数据中获取集数信息
@@ -2510,8 +2523,15 @@ app.post('/api/incomplete-subscriptions/update', requireAuth, async (req, res) =
           if (missingCount > 0) {
             const info = sub.subscription_info || {};
             let posterUrl = info.poster_path || params.poster_path || null;
-            if (posterUrl && !posterUrl.startsWith('http')) {
-              posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+            if (posterUrl) {
+              if (posterUrl.startsWith('/api/v1/proxy/')) {
+                // MediaHelper 的代理路径，拼接 MediaHelper 域名
+                posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+              } else if (!posterUrl.startsWith('http')) {
+                // 如果是相对路径，添加 TMDB 前缀
+                posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+              }
+              // 如果已经是完整 URL，直接使用
             }
 
             newSubscriptions.push({
@@ -2545,8 +2565,15 @@ app.post('/api/incomplete-subscriptions/update', requireAuth, async (req, res) =
           if (!hasMovie) {
             const info = sub.subscription_info || {};
             let posterUrl = info.poster_path || params.poster_path || null;
-            if (posterUrl && !posterUrl.startsWith('http')) {
-              posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+            if (posterUrl) {
+              if (posterUrl.startsWith('/api/v1/proxy/')) {
+                // MediaHelper 的代理路径，拼接 MediaHelper 域名
+                posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+              } else if (!posterUrl.startsWith('http')) {
+                // 如果是相对路径，添加 TMDB 前缀
+                posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+              }
+              // 如果已经是完整 URL，直接使用
             }
 
             newSubscriptions.push({
