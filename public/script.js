@@ -2737,8 +2737,15 @@ async function loadSchedulerStatus() {
     const toggle = document.getElementById('autoSearchToggle');
     const statusBadge = document.getElementById('schedulerStatusBadge');
     const nextRun = document.getElementById('schedulerNextRun');
+    const intervalInput = document.getElementById('batchSearchInterval');
     
     toggle.checked = data.enabled;
+    
+    // 同步间隔设置
+    if (data.intervalHours && intervalInput) {
+      intervalInput.value = data.intervalHours;
+      localStorage.setItem('batchSearchInterval', data.intervalHours);
+    }
     
     if (data.enabled) {
       statusBadge.textContent = '✓ 已启用';
@@ -2754,11 +2761,14 @@ async function loadSchedulerStatus() {
       const diff = nextDate - now;
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
       const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       
       if (days > 0) {
-        nextRun.textContent = `${days}天${hours}小时后`;
+        nextRun.textContent = `${days}天${hours}小时${minutes}分后`;
       } else if (hours > 0) {
-        nextRun.textContent = `${hours}小时后`;
+        nextRun.textContent = `${hours}小时${minutes}分后`;
+      } else if (minutes > 0) {
+        nextRun.textContent = `${minutes}分后`;
       } else {
         nextRun.textContent = '即将运行';
       }
@@ -3080,6 +3090,53 @@ async function stopTaskNow(event) {
   }
 }
 
+// 保存批量查找间隔设置
+function saveBatchSearchInterval(hours) {
+  localStorage.setItem('batchSearchInterval', hours);
+  console.log(`✓ 已保存批量查找间隔: ${hours} 小时`);
+  // 如果定时任务已启用，需要重新设置间隔
+  updateSchedulerInterval(hours);
+}
+
+// 加载批量查找间隔设置
+function loadBatchSearchInterval() {
+  const hours = localStorage.getItem('batchSearchInterval') || '72'; // 默认 3 天
+  const input = document.getElementById('batchSearchInterval');
+  if (input) {
+    input.value = hours;
+  }
+  return parseInt(hours);
+}
+
+// 更新定时任务间隔
+async function updateSchedulerInterval(hours) {
+  if (!hours) {
+    hours = loadBatchSearchInterval();
+  }
+  
+  try {
+    const response = await fetchWithAuth('/api/scheduler/interval', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ hours: parseInt(hours) })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      console.log(`✓ 定时任务间隔已更新为 ${hours} 小时`);
+      // 重新加载状态以显示新的下次运行时间
+      loadSchedulerStatus();
+    } else {
+      console.error('更新间隔失败:', data.error);
+    }
+  } catch (error) {
+    console.error('更新定时任务间隔失败:', error);
+  }
+}
+
 // 批量查找 HDHive 链接（使用后台任务）
 async function batchSearchHDHive() {
   try {
@@ -3283,6 +3340,9 @@ let lastBatchSearchCurrent = null;
 
 // 页面加载时检查是否有正在运行的任务
 window.addEventListener('load', async () => {
+  // 加载批量查找间隔设置
+  loadBatchSearchInterval();
+  
   try {
     const response = await fetchWithAuth('/api/hdhive/batch-search/status');
     const status = await response.json();

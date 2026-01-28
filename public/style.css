@@ -3973,6 +3973,60 @@ input:checked + .slider:hover {
   color: var(--text-secondary);
 }
 
+/* 间隔输入框样式 */
+.interval-input {
+  width: 60px;
+  padding: 4px 8px;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 4px;
+  background: rgba(26, 26, 46, 0.5);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.interval-input:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  background: rgba(26, 26, 46, 0.7);
+}
+
+.interval-input:focus {
+  outline: none;
+  border-color: var(--purple-500);
+  background: rgba(26, 26, 46, 0.8);
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
+}
+
+/* 隐藏数字输入框的上下箭头 */
+.interval-input::-webkit-outer-spin-button,
+.interval-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.interval-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* 浅色模式 */
+@media (prefers-color-scheme: light) {
+  .interval-input {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: rgba(168, 85, 247, 0.2);
+  }
+  
+  .interval-input:hover {
+    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(168, 85, 247, 0.3);
+  }
+  
+  .interval-input:focus {
+    background: #ffffff;
+    border-color: var(--purple-500);
+  }
+}
+
 .task-status {
   display: flex;
   align-items: center;

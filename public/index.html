@@ -860,7 +860,13 @@
             </div>
             <div class="task-info">
               <h4>影巢批量查找</h4>
-              <p>每 7 天自动查找一次</p>
+              <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 13px; color: var(--text-secondary);">每</label>
+                <input type="number" id="batchSearchInterval" min="1" max="720" value="72" 
+                  class="interval-input"
+                  onchange="saveBatchSearchInterval(this.value)">
+                <label style="font-size: 13px; color: var(--text-secondary);">小时自动查找一次</label>
+              </div>
             </div>
             <label class="switch">
               <input type="checkbox" id="autoSearchToggle" onchange="toggleAutoSearch(this.checked)">

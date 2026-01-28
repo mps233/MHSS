@@ -3827,7 +3827,8 @@ async function startServer() {
   let schedulerState = {
     enabled: false,
     nextRun: null,
-    intervalId: null
+    intervalId: null,
+    intervalHours: 72 // 默认 72 小时（3 天）
   };
   
   // 从文件加载定时任务状态
@@ -3840,7 +3841,8 @@ async function startServer() {
         const saved = JSON.parse(data);
         schedulerState.enabled = saved.enabled || false;
         schedulerState.nextRun = saved.nextRun || null;
-        console.log(`📅 定时任务状态已加载: ${schedulerState.enabled ? '已启用' : '未启用'}`);
+        schedulerState.intervalHours = saved.intervalHours || 72;
+        console.log(`📅 定时任务状态已加载: ${schedulerState.enabled ? '已启用' : '未启用'}, 间隔: ${schedulerState.intervalHours} 小时`);
       }
     } catch (error) {
       console.error('加载定时任务状态失败:', error);
@@ -3851,7 +3853,8 @@ async function startServer() {
     try {
       fs.writeFileSync(SCHEDULER_STATE_FILE, JSON.stringify({
         enabled: schedulerState.enabled,
-        nextRun: schedulerState.nextRun
+        nextRun: schedulerState.nextRun,
+        intervalHours: schedulerState.intervalHours
       }, null, 2));
     } catch (error) {
       console.error('保存定时任务状态失败:', error);
@@ -3982,17 +3985,19 @@ async function startServer() {
   }
   
   // 启动定时任务
-  function startScheduler() {
+  function startScheduler(forceRecalculate = false) {
     if (schedulerState.intervalId) {
+      clearTimeout(schedulerState.intervalId);
       clearInterval(schedulerState.intervalId);
+      schedulerState.intervalId = null;
     }
     
-    // 每 7 天 = 7 * 24 * 60 * 60 * 1000 毫秒
-    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    // 使用用户设置的间隔时间（小时转毫秒）
+    const intervalMs = schedulerState.intervalHours * 60 * 60 * 1000;
     
-    // 如果已经有下次运行时间，检查是否已过期
-    let delay = SEVEN_DAYS;
-    if (schedulerState.nextRun) {
+    // 如果强制重新计算，或者没有下次运行时间，则使用新的间隔
+    let delay = intervalMs;
+    if (!forceRecalculate && schedulerState.nextRun) {
       const savedNextRun = new Date(schedulerState.nextRun).getTime();
       const now = Date.now();
       
@@ -4004,30 +4009,31 @@ async function startServer() {
         // 已经过期，立即执行一次
         console.log('⏰ 定时任务已过期，立即执行...');
         runScheduledBatchSearch();
-        schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+        schedulerState.nextRun = Date.now() + intervalMs;
         saveSchedulerState();
       }
     } else {
-      // 首次启动，设置下次运行时间
-      schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+      // 首次启动或强制重新计算，设置下次运行时间
+      schedulerState.nextRun = Date.now() + intervalMs;
       saveSchedulerState();
+      console.log(`📅 设置新的运行时间，间隔: ${schedulerState.intervalHours} 小时`);
     }
     
     // 启动定时器（使用计算出的延迟时间）
     schedulerState.intervalId = setTimeout(() => {
       runScheduledBatchSearch();
-      schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+      schedulerState.nextRun = Date.now() + intervalMs;
       saveSchedulerState();
       
       // 执行完后，设置下一个周期的定时器
       schedulerState.intervalId = setInterval(() => {
         runScheduledBatchSearch();
-        schedulerState.nextRun = Date.now() + SEVEN_DAYS;
+        schedulerState.nextRun = Date.now() + intervalMs;
         saveSchedulerState();
-      }, SEVEN_DAYS);
+      }, intervalMs);
     }, delay);
     
-    console.log(`📅 定时任务已启动，下次运行: ${new Date(schedulerState.nextRun).toLocaleString('zh-CN')}`);
+    console.log(`📅 定时任务已启动，间隔: ${schedulerState.intervalHours} 小时，下次运行: ${new Date(schedulerState.nextRun).toLocaleString('zh-CN')}`);
   }
   
   function stopScheduler() {
@@ -4045,7 +4051,8 @@ async function startServer() {
   app.get('/api/scheduler/status', (req, res) => {
     res.json({
       enabled: schedulerState.enabled,
-      nextRun: schedulerState.nextRun
+      nextRun: schedulerState.nextRun,
+      intervalHours: schedulerState.intervalHours
     });
   });
   
@@ -4064,6 +4071,37 @@ async function startServer() {
       res.json({ success: true, enabled: schedulerState.enabled });
     } catch (error) {
       console.error('切换定时任务失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+  
+  // 更新定时任务间隔
+  app.post('/api/scheduler/interval', requireAuth, (req, res) => {
+    try {
+      const { hours } = req.body;
+      
+      if (!hours || hours < 1 || hours > 720) {
+        return res.status(400).json({ success: false, error: '间隔时间必须在 1-720 小时之间' });
+      }
+      
+      schedulerState.intervalHours = hours;
+      
+      // 重新计算下次运行时间（无论是否启用）
+      schedulerState.nextRun = Date.now() + (hours * 60 * 60 * 1000);
+      saveSchedulerState();
+      
+      // 如果定时任务已启用，重新启动定时器（强制重新计算）
+      if (schedulerState.enabled) {
+        startScheduler(true);
+      }
+      
+      res.json({ 
+        success: true, 
+        intervalHours: schedulerState.intervalHours,
+        nextRun: schedulerState.nextRun
+      });
+    } catch (error) {
+      console.error('更新定时任务间隔失败:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   });
