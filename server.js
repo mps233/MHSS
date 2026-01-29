@@ -3901,11 +3901,25 @@ async function startServer() {
   async function runScheduledBatchSearch() {
     console.log('\n⏰ 定时任务触发：开始批量查找 HDHive 可用链接...');
     
+    // 添加日志到批量查找面板
+    batchSearchTask.logs.unshift({
+      time: new Date().toISOString(),
+      title: '定时任务开始',
+      status: 'info',
+      message: '开始批量查找影巢资源'
+    });
+    
     try {
       // 获取所有订阅
       const mhData = await getMediaHelperSubscriptions();
       if (!mhData || !mhData.subscriptions) {
         console.log('   ❌ 无法获取订阅列表');
+        batchSearchTask.logs.unshift({
+          time: new Date().toISOString(),
+          title: '定时任务失败',
+          status: 'error',
+          message: '无法获取订阅列表'
+        });
         return;
       }
       
@@ -3967,9 +3981,21 @@ async function startServer() {
       }
       
       console.log(`   📊 找到 ${incompleteSubscriptions.length} 个未完成订阅，跳过 ${skippedCount} 个已完成/已入库`);
+      batchSearchTask.logs.unshift({
+        time: new Date().toISOString(),
+        title: '扫描完成',
+        status: 'info',
+        message: `找到 ${incompleteSubscriptions.length} 个未完成订阅，跳过 ${skippedCount} 个`
+      });
       
       if (incompleteSubscriptions.length === 0) {
         console.log('   ✅ 没有未完成的订阅，任务结束');
+        batchSearchTask.logs.unshift({
+          time: new Date().toISOString(),
+          title: '定时任务完成',
+          status: 'success',
+          message: '没有未完成的订阅'
+        });
         return;
       }
       
@@ -3996,15 +4022,45 @@ async function startServer() {
               successCount++;
               totalLinks += result.added;
               console.log(`   ✓ 成功添加 ${result.added} 个新链接`);
+              batchSearchTask.logs.unshift({
+                time: new Date().toISOString(),
+                title: title,
+                status: 'success',
+                message: `找到 ${links.length} 个链接，新增 ${result.added} 个`
+              });
             } else if (result.duplicate === links.length) {
               console.log(`   - 全部链接已存在`);
+              batchSearchTask.logs.unshift({
+                time: new Date().toISOString(),
+                title: title,
+                status: 'warning',
+                message: `找到 ${links.length} 个链接，但全部已存在`
+              });
             }
           } else {
             console.log(`   - 未找到可用链接`);
+            failCount++;
+            batchSearchTask.logs.unshift({
+              time: new Date().toISOString(),
+              title: title,
+              status: 'error',
+              message: '未找到可用链接'
+            });
           }
         } catch (error) {
           failCount++;
           console.error(`   ✗ 查找失败: ${error.message}`);
+          batchSearchTask.logs.unshift({
+            time: new Date().toISOString(),
+            title: title,
+            status: 'error',
+            message: `查找失败: ${error.message}`
+          });
+        }
+        
+        // 限制日志数量
+        if (batchSearchTask.logs.length > 100) {
+          batchSearchTask.logs.pop();
         }
         
         // 延迟 2 秒
@@ -4014,9 +4070,21 @@ async function startServer() {
       }
       
       console.log(`\n✅ 定时任务完成: ${successCount} 个成功, ${failCount} 个失败, 共添加 ${totalLinks} 个链接\n`);
+      batchSearchTask.logs.unshift({
+        time: new Date().toISOString(),
+        title: '定时任务完成',
+        status: 'success',
+        message: `成功: ${successCount}, 失败: ${failCount}, 共添加 ${totalLinks} 个链接`
+      });
       
     } catch (error) {
       console.error('定时任务执行失败:', error);
+      batchSearchTask.logs.unshift({
+        time: new Date().toISOString(),
+        title: '定时任务失败',
+        status: 'error',
+        message: error.message
+      });
     }
   }
   
