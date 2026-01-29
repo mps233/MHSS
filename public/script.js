@@ -4,6 +4,46 @@ if (!token) {
   window.location.href = '/login';
 }
 
+// 图片重试加载函数
+function handleImageError(img, retryCount = 0) {
+  const maxRetries = 3;
+  const originalSrc = img.dataset.originalSrc || img.src;
+  
+  // 保存原始 URL
+  if (!img.dataset.originalSrc) {
+    img.dataset.originalSrc = originalSrc;
+  }
+  
+  // 添加加载失败的类
+  img.classList.add('image-loading-error');
+  
+  if (retryCount < maxRetries) {
+    // 显示加载动画
+    img.classList.add('image-retrying');
+    
+    // 延迟重试（递增延迟：3s, 5s, 8s）
+    const delays = [3000, 5000, 8000];
+    setTimeout(() => {
+      console.log(`重试加载图片 (${retryCount + 1}/${maxRetries}):`, originalSrc);
+      img.src = originalSrc + '?retry=' + Date.now(); // 添加时间戳避免缓存
+      img.dataset.retryCount = retryCount + 1;
+    }, delays[retryCount]);
+  } else {
+    // 重试失败，使用降级图片
+    console.log('图片加载失败，使用降级图片:', originalSrc);
+    img.classList.remove('image-retrying');
+    img.classList.add('image-fallback');
+    img.src = '/256.webp';
+    img.onerror = null; // 防止降级图片也失败导致无限循环
+  }
+}
+
+// 图片加载成功处理
+function handleImageLoad(img) {
+  img.classList.remove('image-loading-error', 'image-retrying', 'image-fallback');
+  delete img.dataset.retryCount;
+}
+
 // 验证token并检查账号状态
 async function verifyToken() {
   try {
@@ -502,7 +542,11 @@ function displayRecentCarousel(requests) {
     
     return `
       <div class="recent-item">
-        ${item.poster ? `<img src="${item.poster}" class="recent-poster" alt="${escapeHtml(item.title)}">` : '<div class="recent-poster"></div>'}
+        ${item.poster ? `<img src="${item.poster}" 
+                              class="recent-poster" 
+                              alt="${escapeHtml(item.title)}"
+                              onerror="handleImageError(this, parseInt(this.dataset.retryCount || 0))"
+                              onload="handleImageLoad(this)">` : '<div class="recent-poster"></div>'}
         <div class="recent-info">
           <div class="recent-title">${escapeHtml(item.title)}</div>
           <div class="recent-meta">
@@ -978,7 +1022,12 @@ function displayIncompleteSubscriptions(page) {
     
     return `
       <div class="incomplete-item">
-        <img src="${posterUrl}" class="incomplete-poster" alt="${escapeHtml(sub.title)}" loading="lazy" onerror="this.src='/256.webp'">
+        <img src="${posterUrl}" 
+             class="incomplete-poster" 
+             alt="${escapeHtml(sub.title)}" 
+             loading="lazy" 
+             onerror="handleImageError(this, parseInt(this.dataset.retryCount || 0))"
+             onload="handleImageLoad(this)">
         <div class="incomplete-info">
           <div class="incomplete-content">
             <div class="incomplete-title">${escapeHtml(sub.title)}</div>
@@ -1249,7 +1298,12 @@ function displayMovies(movies, container) {
       return `
         <div class="movie-card">
           <div class="movie-poster-wrapper">
-            ${posterUrl ? `<img src="${posterUrl}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
+            ${posterUrl ? `<img src="${posterUrl}" 
+                                 class="movie-poster" 
+                                 alt="${escapeHtml(movie.title)}" 
+                                 loading="lazy"
+                                 onerror="handleImageError(this, parseInt(this.dataset.retryCount || 0))"
+                                 onload="handleImageLoad(this)">` : ''}
             <div class="movie-rating">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#fbbf24" stroke="none">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -1274,7 +1328,12 @@ function displayMovies(movies, container) {
       return `
         <div class="movie-card">
           <div class="movie-poster-wrapper">
-            ${posterUrl ? `<img src="${posterUrl}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
+            ${posterUrl ? `<img src="${posterUrl}" 
+                                 class="movie-poster" 
+                                 alt="${escapeHtml(movie.title)}" 
+                                 loading="lazy"
+                                 onerror="handleImageError(this, parseInt(this.dataset.retryCount || 0))"
+                                 onload="handleImageLoad(this)">` : ''}
             <div class="movie-rating">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#fbbf24" stroke="none">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -1300,7 +1359,12 @@ function displayMovies(movies, container) {
       return `
         <div class="movie-card">
           <div class="movie-poster-wrapper">
-            ${posterUrl ? `<img src="${posterUrl}" class="movie-poster" alt="${escapeHtml(movie.title)}" loading="lazy">` : ''}
+            ${posterUrl ? `<img src="${posterUrl}" 
+                                 class="movie-poster" 
+                                 alt="${escapeHtml(movie.title)}" 
+                                 loading="lazy"
+                                 onerror="handleImageError(this, parseInt(this.dataset.retryCount || 0))"
+                                 onload="handleImageLoad(this)">` : ''}
             <div class="movie-rating">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#fbbf24" stroke="none">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -1531,7 +1595,11 @@ function displaySuggestions(results) {
     
     return `
       <div class="suggestion-item ${statusClass}">
-        ${item.poster ? `<img src="${item.poster}" class="suggestion-poster" alt="${escapeHtml(item.title)}" onerror="this.style.display='none'">` : '<div class="suggestion-poster"></div>'}
+        ${item.poster ? `<img src="${item.poster}" 
+                              class="suggestion-poster" 
+                              alt="${escapeHtml(item.title)}"
+                              onerror="handleImageError(this, parseInt(this.dataset.retryCount || 0))"
+                              onload="handleImageLoad(this)">` : '<div class="suggestion-poster"></div>'}
         <div class="suggestion-info">
           <div class="suggestion-title">${escapeHtml(item.title)}</div>
           <div class="suggestion-meta">

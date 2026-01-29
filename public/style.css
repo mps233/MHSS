@@ -4698,3 +4698,74 @@ input:checked + .slider:hover {
   opacity: 0.7;
   transition: none;
 }
+
+/* 图片加载状态样式 */
+img.image-retrying {
+  position: relative;
+  opacity: 0.5;
+}
+
+img.image-retrying::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid rgba(168, 85, 247, 0.3);
+  border-top-color: var(--purple-500);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+img.image-fallback {
+  opacity: 0.6;
+  filter: grayscale(50%);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 图片加载动画 - 骨架屏效果 */
+img[src]:not([src=""]) {
+  background: linear-gradient(
+    90deg,
+    rgba(168, 85, 247, 0.05) 0%,
+    rgba(168, 85, 247, 0.1) 50%,
+    rgba(168, 85, 247, 0.05) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+img[src]:not([src=""]).image-loaded,
+img[src]:not([src=""]).image-fallback {
+  animation: none;
+  background: none;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* 浅色模式下的图片加载效果 */
+@media (prefers-color-scheme: light) {
+  img[src]:not([src=""]) {
+    background: linear-gradient(
+      90deg,
+      rgba(168, 85, 247, 0.03) 0%,
+      rgba(168, 85, 247, 0.08) 50%,
+      rgba(168, 85, 247, 0.03) 100%
+    );
+    background-size: 200% 100%;
+  }
+}
