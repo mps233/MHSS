@@ -8,8 +8,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # 挂载 hdhive_state.json 以持久化 Cookie
-      - ./hdhive_state.json:/app/hdhive_state.json
+      # 持久化数据目录（重要！）
+      - ./data:/app/data
     environment:
       # 必需配置
       - TMDB_API_KEY=你的TMDB_API_KEY

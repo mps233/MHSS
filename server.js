@@ -5,6 +5,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
+const stateManager = require('./state-manager');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -181,30 +182,23 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Session管理
-const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
-
-// 从文件加载sessions
 function loadSessions() {
-  try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      const data = fs.readFileSync(SESSIONS_FILE, 'utf8');
-      const sessionsArray = JSON.parse(data);
-      return new Map(sessionsArray);
+  const state = stateManager.getState('sessions');
+  if (state && typeof state === 'object') {
+    // 将对象转换为 Map，兼容旧格式
+    if (Array.isArray(state)) {
+      return new Map(state);
+    } else {
+      return new Map(Object.entries(state));
     }
-  } catch (error) {
-    console.error('加载sessions失败:', error);
   }
   return new Map();
 }
 
-// 保存sessions到文件
 function saveSessions() {
-  try {
-    const sessionsArray = Array.from(sessions.entries());
-    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessionsArray, null, 2));
-  } catch (error) {
-    console.error('保存sessions失败:', error);
-  }
+  const sessionsArray = Array.from(sessions.entries());
+  const sessionsObj = Object.fromEntries(sessionsArray);
+  stateManager.setState('sessions', sessionsObj);
 }
 
 const sessions = loadSessions(); // 存储用户session
@@ -214,57 +208,44 @@ const USER_REQUEST_LIMIT = 3; // 默认每个用户最多3次请求
 const userRequestCounts = new Map(); // userId -> count
 const userCustomLimits = new Map(); // userId -> customLimit (自定义限制)
 
-// 用户数据持久化文件（包含限制和计数）
-const USER_DATA_FILE = path.join(__dirname, 'user_data.json');
-
 // 加载用户数据
 function loadUserData() {
-  try {
-    if (fs.existsSync(USER_DATA_FILE)) {
-      const data = fs.readFileSync(USER_DATA_FILE, 'utf8');
-      const userData = JSON.parse(data);
-      
-      // 加载自定义限制
-      if (userData.limits) {
-        Object.entries(userData.limits).forEach(([userId, limit]) => {
-          userCustomLimits.set(userId, limit);
-        });
-        console.log(`📋 已加载 ${userCustomLimits.size} 个用户的自定义限制`);
-      }
-      
-      // 加载请求计数
-      if (userData.counts) {
-        Object.entries(userData.counts).forEach(([userId, count]) => {
-          userRequestCounts.set(userId, count);
-        });
-        console.log(`📊 已加载 ${userRequestCounts.size} 个用户的请求计数`);
-      }
+  const userData = stateManager.getState('userData');
+  if (userData) {
+    // 加载自定义限制
+    if (userData.limits) {
+      Object.entries(userData.limits).forEach(([userId, limit]) => {
+        userCustomLimits.set(userId, limit);
+      });
+      console.log(`📋 已加载 ${userCustomLimits.size} 个用户的自定义限制`);
     }
-  } catch (error) {
-    console.error('加载用户数据失败:', error);
+    
+    // 加载请求计数
+    if (userData.counts) {
+      Object.entries(userData.counts).forEach(([userId, count]) => {
+        userRequestCounts.set(userId, count);
+      });
+      console.log(`📊 已加载 ${userRequestCounts.size} 个用户的请求计数`);
+    }
   }
 }
 
 // 保存用户数据
 function saveUserData() {
-  try {
-    const userData = {
-      limits: {},
-      counts: {}
-    };
-    
-    userCustomLimits.forEach((limit, userId) => {
-      userData.limits[userId] = limit;
-    });
-    
-    userRequestCounts.forEach((count, userId) => {
-      userData.counts[userId] = count;
-    });
-    
-    fs.writeFileSync(USER_DATA_FILE, JSON.stringify(userData, null, 2), 'utf8');
-  } catch (error) {
-    console.error('保存用户数据失败:', error);
-  }
+  const userData = {
+    limits: {},
+    counts: {}
+  };
+  
+  userCustomLimits.forEach((limit, userId) => {
+    userData.limits[userId] = limit;
+  });
+  
+  userRequestCounts.forEach((count, userId) => {
+    userData.counts[userId] = count;
+  });
+  
+  stateManager.setState('userData', userData);
 }
 
 // 防抖保存
@@ -302,7 +283,6 @@ let trendsCacheExpiry = 0;
 const TRENDS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 
 // 新订阅自动查找设置
-const AUTO_SEARCH_NEW_FILE = 'auto_search_new.json';
 let autoSearchNewEnabled = false;
 
 // 自动删除已完成订阅设置
@@ -887,55 +867,46 @@ function stopAutoDeleteCompleted() {
 
 // 加载新订阅自动查找设置
 function loadAutoSearchNewSetting() {
-  try {
-    if (fs.existsSync(AUTO_SEARCH_NEW_FILE)) {
-      const data = fs.readFileSync(AUTO_SEARCH_NEW_FILE, 'utf8');
-      const saved = JSON.parse(data);
-      autoSearchNewEnabled = saved.enabled || false;
-      autoDeleteCompletedMovieEnabled = saved.autoDeleteCompletedMovie || false;
-      autoDeleteCompletedTVEnabled = saved.autoDeleteCompletedTV || false;
-      console.log(`📋 新订阅自动查找设置已加载: ${autoSearchNewEnabled ? '已启用' : '未启用'}`);
-      console.log(`📋 自动删除已完成电影设置已加载: ${autoDeleteCompletedMovieEnabled ? '已启用' : '未启用'}`);
-      console.log(`📋 自动删除已完成电视剧设置已加载: ${autoDeleteCompletedTVEnabled ? '已启用' : '未启用'}`);
-      
-      // 如果启用，启动检测
-      if (autoSearchNewEnabled && HDHIVE_ENABLED) {
-        startNewSubscriptionCheck();
-      }
-      
-      // 如果启用，启动自动删除定时任务
-      if (autoDeleteCompletedMovieEnabled || autoDeleteCompletedTVEnabled) {
-        startAutoDeleteCompleted();
-      }
+  const saved = stateManager.getState('autoSearchNew');
+  if (saved) {
+    autoSearchNewEnabled = saved.enabled || false;
+    autoDeleteCompletedMovieEnabled = saved.autoDeleteCompletedMovie || false;
+    autoDeleteCompletedTVEnabled = saved.autoDeleteCompletedTV || false;
+    console.log(`📋 新订阅自动查找设置已加载: ${autoSearchNewEnabled ? '已启用' : '未启用'}`);
+    console.log(`📋 自动删除已完成电影设置已加载: ${autoDeleteCompletedMovieEnabled ? '已启用' : '未启用'}`);
+    console.log(`📋 自动删除已完成电视剧设置已加载: ${autoDeleteCompletedTVEnabled ? '已启用' : '未启用'}`);
+    
+    // 如果启用，启动检测
+    if (autoSearchNewEnabled && HDHIVE_ENABLED) {
+      startNewSubscriptionCheck();
     }
-  } catch (error) {
-    console.error('加载新订阅自动查找设置失败:', error);
+    
+    // 如果启用，启动自动删除定时任务
+    if (autoDeleteCompletedMovieEnabled || autoDeleteCompletedTVEnabled) {
+      startAutoDeleteCompleted();
+    }
   }
 }
 
 function saveAutoSearchNewSetting() {
-  try {
-    fs.writeFileSync(AUTO_SEARCH_NEW_FILE, JSON.stringify({
-      enabled: autoSearchNewEnabled,
-      autoDeleteCompletedMovie: autoDeleteCompletedMovieEnabled,
-      autoDeleteCompletedTV: autoDeleteCompletedTVEnabled
-    }, null, 2));
-    
-    // 根据状态启动或停止检测
-    if (autoSearchNewEnabled && HDHIVE_ENABLED) {
-      startNewSubscriptionCheck();
-    } else {
-      stopNewSubscriptionCheck();
-    }
-    
-    // 根据状态启动或停止自动删除
-    if (autoDeleteCompletedMovieEnabled || autoDeleteCompletedTVEnabled) {
-      startAutoDeleteCompleted();
-    } else {
-      stopAutoDeleteCompleted();
-    }
-  } catch (error) {
-    console.error('保存新订阅自动查找设置失败:', error);
+  stateManager.setState('autoSearchNew', {
+    enabled: autoSearchNewEnabled,
+    autoDeleteCompletedMovie: autoDeleteCompletedMovieEnabled,
+    autoDeleteCompletedTV: autoDeleteCompletedTVEnabled
+  });
+  
+  // 根据状态启动或停止检测
+  if (autoSearchNewEnabled && HDHIVE_ENABLED) {
+    startNewSubscriptionCheck();
+  } else {
+    stopNewSubscriptionCheck();
+  }
+  
+  // 根据状态启动或停止自动删除
+  if (autoDeleteCompletedMovieEnabled || autoDeleteCompletedTVEnabled) {
+    startAutoDeleteCompleted();
+  } else {
+    stopAutoDeleteCompleted();
   }
 }
 
@@ -2148,21 +2119,29 @@ app.get('/api/recent-requests', async (req, res) => {
     
     if (data && data.subscriptions && data.subscriptions.length > 0) {
       // 转换 MediaHelper 订阅数据为前端需要的格式
-      const requestsWithPosters = data.subscriptions.slice(0, 30).map(sub => {
+      const requestsPromises = data.subscriptions.slice(0, 30).map(async sub => {
         const info = sub.subscription_info || {};
         const params = sub.params || {};
         
-        // 处理海报路径 - 可能是完整 URL、代理路径或相对路径
-        let posterUrl = info.poster_path || params.poster_path || null;
-        if (posterUrl) {
-          if (posterUrl.startsWith('/api/v1/proxy/')) {
-            // MediaHelper 的代理路径，拼接 MediaHelper 域名
-            posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
-          } else if (!posterUrl.startsWith('http')) {
-            // 如果是相对路径，添加 TMDB 前缀
-            posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+        const tmdbId = info.tmdb_id || params.tmdb_id;
+        const mediaType = info.media_type || params.media_type;
+        
+        // 统一从 TMDB 获取图片，不依赖 MediaHelper
+        let posterUrl = null;
+        if (tmdbId && mediaType) {
+          posterUrl = await getTMDBPosterUrl(tmdbId, mediaType, 'w200');
+        }
+        
+        // 如果 TMDB 获取失败，尝试使用 MediaHelper 提供的路径作为降级
+        if (!posterUrl) {
+          posterUrl = info.poster_path || params.poster_path || null;
+          if (posterUrl) {
+            if (posterUrl.startsWith('/api/v1/proxy/')) {
+              posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+            } else if (!posterUrl.startsWith('http')) {
+              posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+            }
           }
-          // 如果已经是完整 URL (http:// 或 https://)，直接使用
         }
         
         // 处理时间 - MediaHelper 返回的时间是 UTC 时间但没有 Z 后缀
@@ -2174,13 +2153,15 @@ app.get('/api/recent-requests', async (req, res) => {
         }
         
         return {
-          id: info.tmdb_id || params.tmdb_id,
+          id: tmdbId,
           title: info.title || params.title || params.custom_name || sub.name,
-          mediaType: info.media_type || params.media_type,
+          mediaType: mediaType,
           requestedAt: requestedAt,
           poster: posterUrl
         };
       });
+      
+      const requestsWithPosters = await Promise.all(requestsPromises);
       
       // console.log('转换后的订阅数据:', JSON.stringify(requestsWithPosters.slice(0, 3), null, 2));
       return res.json({ requests: requestsWithPosters });
@@ -2192,6 +2173,28 @@ app.get('/api/recent-requests', async (req, res) => {
     res.json({ requests: [] });
   }
 });
+
+// 从 TMDB 获取海报 URL
+async function getTMDBPosterUrl(tmdbId, mediaType, size = 'w200') {
+  if (!tmdbId || !mediaType) return null;
+  
+  try {
+    const response = await fetchWithProxy(
+      `https://api.tmdb.org/3/${mediaType}/${tmdbId}?api_key=${process.env.TMDB_API_KEY}&language=zh-CN`
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.poster_path) {
+        return `https://image.tmdb.org/t/p/${size}${data.poster_path}`;
+      }
+    }
+  } catch (error) {
+    console.error(`获取 TMDB 图片失败 (${mediaType}/${tmdbId}):`, error.message);
+  }
+  
+  return null;
+}
 
 // 未完成订阅缓存（按页缓存集数信息）
 let incompleteSubscriptionsPageCache = {}; // { 'page_perPage': { subscriptions: [...], checkedAt: timestamp } }
@@ -2275,21 +2278,28 @@ app.get('/api/incomplete-subscriptions', requireAuth, async (req, res) => {
     console.log(`\n� 检查第 ${page} 页的 ${pageSubscriptions.length} 个订阅的集数信息...`);
     
     // 4. 格式化该页订阅数据（使用 MediaHelper 提供的集数信息）
-    const formattedSubscriptions = pageSubscriptions.map(sub => {
+    const formattedSubscriptionsPromises = pageSubscriptions.map(async sub => {
       const params = sub.params || {};
       const info = sub.subscription_info || {};
       const mediaType = params.media_type;
+      const tmdbId = params.tmdb_id;
       
-      let posterUrl = info.poster_path || params.poster_path || null;
-      if (posterUrl) {
-        if (posterUrl.startsWith('/api/v1/proxy/')) {
-          // MediaHelper 的代理路径，拼接 MediaHelper 域名
-          posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
-        } else if (!posterUrl.startsWith('http')) {
-          // 如果是相对路径，添加 TMDB 前缀
-          posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+      // 统一从 TMDB 获取图片，不依赖 MediaHelper
+      let posterUrl = null;
+      if (tmdbId && mediaType) {
+        posterUrl = await getTMDBPosterUrl(tmdbId, mediaType, 'w200');
+      }
+      
+      // 如果 TMDB 获取失败，尝试使用 MediaHelper 提供的路径作为降级
+      if (!posterUrl) {
+        posterUrl = info.poster_path || params.poster_path || null;
+        if (posterUrl) {
+          if (posterUrl.startsWith('/api/v1/proxy/')) {
+            posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+          } else if (!posterUrl.startsWith('http')) {
+            posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+          }
         }
-        // 如果已经是完整 URL，直接使用
       }
       
       // 从 MediaHelper 的 episodes 数据中获取集数信息
@@ -2381,6 +2391,8 @@ app.get('/api/incomplete-subscriptions', requireAuth, async (req, res) => {
         rating: rating
       };
     });
+    
+    const formattedSubscriptions = await Promise.all(formattedSubscriptionsPromises);
     
     console.log(`✅ 第 ${page} 页格式化完成，共 ${formattedSubscriptions.length} 个订阅\n`);
     
@@ -2522,16 +2534,20 @@ app.post('/api/incomplete-subscriptions/update', requireAuth, async (req, res) =
           
           if (missingCount > 0) {
             const info = sub.subscription_info || {};
-            let posterUrl = info.poster_path || params.poster_path || null;
-            if (posterUrl) {
-              if (posterUrl.startsWith('/api/v1/proxy/')) {
-                // MediaHelper 的代理路径，拼接 MediaHelper 域名
-                posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
-              } else if (!posterUrl.startsWith('http')) {
-                // 如果是相对路径，添加 TMDB 前缀
-                posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+            
+            // 统一从 TMDB 获取图片
+            let posterUrl = await getTMDBPosterUrl(tmdbId, 'tv', 'w200');
+            
+            // 如果 TMDB 获取失败，使用 MediaHelper 提供的路径作为降级
+            if (!posterUrl) {
+              posterUrl = info.poster_path || params.poster_path || null;
+              if (posterUrl) {
+                if (posterUrl.startsWith('/api/v1/proxy/')) {
+                  posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+                } else if (!posterUrl.startsWith('http')) {
+                  posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+                }
               }
-              // 如果已经是完整 URL，直接使用
             }
 
             newSubscriptions.push({
@@ -2564,16 +2580,20 @@ app.post('/api/incomplete-subscriptions/update', requireAuth, async (req, res) =
 
           if (!hasMovie) {
             const info = sub.subscription_info || {};
-            let posterUrl = info.poster_path || params.poster_path || null;
-            if (posterUrl) {
-              if (posterUrl.startsWith('/api/v1/proxy/')) {
-                // MediaHelper 的代理路径，拼接 MediaHelper 域名
-                posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
-              } else if (!posterUrl.startsWith('http')) {
-                // 如果是相对路径，添加 TMDB 前缀
-                posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+            
+            // 统一从 TMDB 获取图片
+            let posterUrl = await getTMDBPosterUrl(tmdbId, 'movie', 'w200');
+            
+            // 如果 TMDB 获取失败，使用 MediaHelper 提供的路径作为降级
+            if (!posterUrl) {
+              posterUrl = info.poster_path || params.poster_path || null;
+              if (posterUrl) {
+                if (posterUrl.startsWith('/api/v1/proxy/')) {
+                  posterUrl = `${process.env.MEDIAHELPER_URL}${posterUrl}`;
+                } else if (!posterUrl.startsWith('http')) {
+                  posterUrl = `https://image.tmdb.org/t/p/w200${posterUrl}`;
+                }
               }
-              // 如果已经是完整 URL，直接使用
             }
 
             newSubscriptions.push({
@@ -3859,33 +3879,22 @@ async function startServer() {
   };
   
   // 从文件加载定时任务状态
-  const SCHEDULER_STATE_FILE = 'scheduler_state.json';
-  
   function loadSchedulerState() {
-    try {
-      if (fs.existsSync(SCHEDULER_STATE_FILE)) {
-        const data = fs.readFileSync(SCHEDULER_STATE_FILE, 'utf8');
-        const saved = JSON.parse(data);
-        schedulerState.enabled = saved.enabled || false;
-        schedulerState.nextRun = saved.nextRun || null;
-        schedulerState.intervalHours = saved.intervalHours || 72;
-        console.log(`📅 定时任务状态已加载: ${schedulerState.enabled ? '已启用' : '未启用'}, 间隔: ${schedulerState.intervalHours} 小时`);
-      }
-    } catch (error) {
-      console.error('加载定时任务状态失败:', error);
+    const saved = stateManager.getState('scheduler');
+    if (saved) {
+      schedulerState.enabled = saved.enabled || false;
+      schedulerState.nextRun = saved.nextRun || null;
+      schedulerState.intervalHours = saved.intervalHours || 72;
+      console.log(`📅 定时任务状态已加载: ${schedulerState.enabled ? '已启用' : '未启用'}, 间隔: ${schedulerState.intervalHours} 小时`);
     }
   }
   
   function saveSchedulerState() {
-    try {
-      fs.writeFileSync(SCHEDULER_STATE_FILE, JSON.stringify({
-        enabled: schedulerState.enabled,
-        nextRun: schedulerState.nextRun,
-        intervalHours: schedulerState.intervalHours
-      }, null, 2));
-    } catch (error) {
-      console.error('保存定时任务状态失败:', error);
-    }
+    stateManager.setState('scheduler', {
+      enabled: schedulerState.enabled,
+      nextRun: schedulerState.nextRun,
+      intervalHours: schedulerState.intervalHours
+    });
   }
   
   // 执行批量查找任务

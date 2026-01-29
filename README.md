@@ -100,8 +100,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # 挂载 hdhive_state.json 以持久化 Cookie（推荐）
-      - ./hdhive_state.json:/app/hdhive_state.json
+      # 持久化数据目录（重要！）
+      - ./data:/app/data
     environment:
       # 必需配置
       - NODE_ENV=production
@@ -138,7 +138,7 @@ docker-compose up -d
 docker run -d \
   --name mhss \
   -p 3000:3000 \
-  -v ./hdhive_state.json:/app/hdhive_state.json \
+  -v ./data:/app/data \
   -e TMDB_API_KEY=你的TMDB_API_KEY \
   -e EMBY_URL=你的Emby服务器地址 \
   -e EMBY_API_KEY=你的Emby_API_KEY \
@@ -168,8 +168,9 @@ Docker 镜像已包含：
 
 **重要提示**：
 - 首次运行会使用 Playwright 自动登录获取 Cookie（约 5-10 秒）
-- Cookie 保存在容器内的 `hdhive_state.json`
-- 建议挂载此文件以持久化 Cookie：`-v ./hdhive_state.json:/app/hdhive_state.json`
+- **必须挂载 data 目录以持久化数据**，否则重启容器后会丢失所有状态
+- 所有状态数据统一保存在 `data/app_state.json` 文件中
+- 旧版本的多个 JSON 文件会自动迁移到新的单文件格式
 - Cookie 有效期约 7 天，过期后自动刷新
 
 ## 配置说明
@@ -233,11 +234,12 @@ HDHIVE_PASSWORD=你的影巢密码
 **Docker 用户注意**：
 - Docker 镜像已包含 Playwright 和轻量版 Chromium（~180MB）
 - 首次运行会自动获取 Cookie 并保存到容器内
-- 建议挂载 `hdhive_state.json` 文件以持久化 Cookie：
+- **必须挂载 data 目录以持久化数据**：
   ```yaml
   volumes:
-    - ./hdhive_state.json:/app/hdhive_state.json
+    - ./data:/app/data
   ```
+- 所有状态数据统一保存在 `data/app_state.json` 文件中
 - 如果想进一步减小镜像大小，可以手动提供 Cookie（见下方"备选方式"）
 
 #### 备选配置：手动 Cookie（仅适用于无法安装浏览器的环境）

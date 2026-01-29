@@ -2,11 +2,16 @@ node_modules/
 .env
 .DS_Store
 *.log
+
+# 旧的状态文件（已迁移到 data/app_state.json）
 sessions.json
 scheduler_state.json
 hdhive_state.json
 auto_search_new.json
 user_data.json
+
+# 新的状态文件
+data/app_state.json
 
 # Python 缓存
 __pycache__/
