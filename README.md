@@ -155,23 +155,21 @@ docker run -d \
 
 Docker 镜像已包含：
 - ✅ Node.js 18 运行环境
-- ✅ Python 3.12 + HDHive 模块（x86_64）
-- ✅ Playwright + Chromium Headless Shell（~158MB）
 - ✅ 所有必需的依赖包
 - ✅ 自动健康检查
 
-**基础镜像**：Ubuntu 24.04 LTS（支持 Python 3.12）
+**基础镜像**：node:18-alpine
 
-**镜像大小**：约 500-550MB（包含完整的影巢自动登录功能）
+**镜像大小**：约 150-200MB（轻量级 Alpine 镜像）
 
 **架构支持**：x86_64 (amd64)
 
 **重要提示**：
-- 首次运行会使用 Playwright 自动登录获取 Cookie（约 5-10 秒）
+- 首次运行会自动登录 HDHive 获取 Cookie（约 2-3 秒）
 - **必须挂载 data 目录以持久化数据**，否则重启容器后会丢失所有状态
 - 所有状态数据统一保存在 `data/app_state.json` 文件中
 - 旧版本的多个 JSON 文件会自动迁移到新的单文件格式
-- Cookie 有效期约 7 天，过期后自动刷新
+- Cookie 有效期约 10 天，过期后自动刷新
 
 ## 配置说明
 
@@ -193,9 +191,7 @@ Docker 镜像已包含：
 
 ### 影巢配置（可选）
 
-如果想要自动获取影巢（HDHive）免费 115 链接，推荐使用账号密码配置：
-
-#### 推荐方式：使用账号密码（智能自动处理）
+如果想要自动获取影巢（HDHive）免费 115 链接，使用账号密码配置：
 
 ```env
 HDHIVE_ENABLED=true
@@ -203,46 +199,27 @@ HDHIVE_USERNAME=你的影巢账号
 HDHIVE_PASSWORD=你的影巢密码
 ```
 
-**工作原理**（自动优化，无需手动干预）：
-1. **首次运行**：使用 Playwright 自动登录获取 Cookie 并保存（需要浏览器，仅一次）
-2. **后续查询**：直接使用保存的 Cookie（快速，无需浏览器）
-3. **Cookie 过期**：自动重新登录获取新 Cookie（约 7 天一次）
+**工作原理**（纯 Node.js 实现，无需 Python）：
+1. **首次运行**：使用 Node.js 自动登录获取 Cookie 并保存（快速，约 2-3 秒）
+2. **后续查询**：直接使用保存的 Cookie（毫秒级响应）
+3. **Cookie 过期**：自动重新登录获取新 Cookie（约 10 天一次）
 
 **优点**：
 - ✅ 一次配置永久有效
 - ✅ Cookie 自动管理，过期自动刷新
-- ✅ 大部分时间不需要浏览器（只在首次和过期时需要）
+- ✅ 纯 Node.js 实现，无需额外依赖
+- ✅ 快速响应，无需浏览器
 - ✅ 无需手动维护
 
-**环境要求**：
-- Python 3.12+（已包含在 Docker 镜像中）
-- hdhive 模块（已包含在 Docker 镜像中）
-- Playwright + 浏览器（首次运行时需要）：
-  ```bash
-  pip install playwright
-  
-  # 推荐：轻量版浏览器（~180MB，专为无头模式优化）
-  playwright install chromium-headless-shell
-  
-  # 或标准版（~280MB）
-  playwright install chromium
-  
-  # 或更轻量的 WebKit（~180MB，可能有兼容性问题）
-  playwright install webkit
-  ```
-  
 **Docker 用户注意**：
-- Docker 镜像已包含 Playwright 和轻量版 Chromium（~180MB）
-- 首次运行会自动获取 Cookie 并保存到容器内
 - **必须挂载 data 目录以持久化数据**：
   ```yaml
   volumes:
     - ./data:/app/data
   ```
 - 所有状态数据统一保存在 `data/app_state.json` 文件中
-- 如果想进一步减小镜像大小，可以手动提供 Cookie（见下方"备选方式"）
 
-#### 备选配置：手动 Cookie（仅适用于无法安装浏览器的环境）
+#### 备选配置：手动 Cookie（不推荐）
 
 ```env
 HDHIVE_ENABLED=true
@@ -256,16 +233,12 @@ HDHIVE_COOKIE=token=xxx; csrf_access_token=xxx
 4. 复制 Request Headers 中的 Cookie 值
 5. 格式：`token=xxx; csrf_access_token=xxx`
 
-**优点**：
-- ✅ 不需要 Playwright 和浏览器
-- ✅ 配置简单
-
 **缺点**：
-- ❌ Cookie 会过期（约 7 天）
+- ❌ Cookie 会过期（约 10 天）
 - ❌ 过期后需要手动重新获取
 - ❌ 无法自动刷新
 
-**不推荐原因**：需要每周手动更新，不如账号密码方便。
+**不推荐原因**：需要定期手动更新，不如账号密码方便。
 
 ---
 
@@ -326,7 +299,6 @@ HDHIVE_COOKIE=token=xxx; csrf_access_token=xxx
 - **前端**: 原生 JavaScript + CSS
 - **图表**: Chart.js
 - **API**: TMDB API, Emby API, MediaHelper API, HDHive API
-- **Python**: Python 3.12 + HDHive 模块（用于影巢资源查询）
 - **部署**: Docker
 
 ## 性能优化
@@ -365,8 +337,8 @@ MIT License
 - 查看浏览器控制台的错误信息
 
 ### 3. 影巢查找不工作？
-- 确认已按照 [HDHIVE_SETUP.md](HDHIVE_SETUP.md) 正确配置
-- 检查 Python 3.12 是否已安装
+- 确认已正确配置 HDHIVE_USERNAME 和 HDHIVE_PASSWORD
+- 检查账号密码是否正确
 - 查看日志面板中的错误信息
 
 ### 4. 如何更新到最新版本？

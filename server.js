@@ -106,7 +106,19 @@ async function stopHDHiveService() {
 }
 */
 
-// 查询 HDHive 可用 115 链接（使用 curl-cffi 客户端）
+// HDHive 客户端（Node.js 版本）
+const HDHiveClient = require('./hdhive-client');
+let hdhiveClient = null;
+
+// 获取或创建 HDHive 客户端实例
+function getHDHiveClient() {
+  if (!hdhiveClient && HDHIVE_USERNAME && HDHIVE_PASSWORD) {
+    hdhiveClient = new HDHiveClient(HDHIVE_USERNAME, HDHIVE_PASSWORD);
+  }
+  return hdhiveClient;
+}
+
+// 查询 HDHive 可用 115 链接（使用 Node.js 客户端）
 async function getHDHiveFreeLinks(tmdbId, mediaType) {
   if (!HDHIVE_ENABLED) {
     return [];
@@ -122,69 +134,12 @@ async function getHDHiveFreeLinks(tmdbId, mediaType) {
     
     const type = mediaType === 'movie' ? 'movie' : 'tv';
     
-    // 调用 curl-cffi 客户端
-    const { spawn } = require('child_process');
+    // 使用 Node.js 客户端
+    const client = getHDHiveClient();
+    const links = await client.searchFromTmdb(tmdbId.toString(), type);
     
-    const result = await new Promise((resolve, reject) => {
-      const process = spawn('python3', [
-        'hdhive_curl_client.py',
-        'tmdb',
-        tmdbId.toString(),
-        type,
-        HDHIVE_USERNAME,
-        HDHIVE_PASSWORD
-      ]);
-      
-      let stdout = '';
-      let stderr = '';
-      
-      process.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-      
-      process.stderr.on('data', (data) => {
-        stderr += data.toString();
-        // 输出日志到控制台
-        const lines = data.toString().trim().split('\n');
-        lines.forEach(line => {
-          if (line) {
-            console.log(`   [HDHive] ${line}`);
-          }
-        });
-      });
-      
-      process.on('close', (code) => {
-        if (code === 0) {
-          try {
-            const result = JSON.parse(stdout.trim());
-            resolve(result);
-          } catch (e) {
-            reject(new Error(`解析 JSON 失败: ${e.message}`));
-          }
-        } else {
-          reject(new Error(`进程退出码: ${code}`));
-        }
-      });
-      
-      process.on('error', (error) => {
-        reject(error);
-      });
-      
-      // 3分钟超时
-      setTimeout(() => {
-        process.kill();
-        reject(new Error('查询超时'));
-      }, 180000);
-    });
-    
-    if (result.success) {
-      const links = result.links || [];
-      console.log(`🎉 HDHive: 查询完成，找到 ${links.length} 个链接\n`);
-      return links;
-    } else {
-      console.error(`❌ HDHive: 查询失败: ${result.error}\n`);
-      return [];
-    }
+    console.log(`🎉 HDHive: 查询完成，找到 ${links.length} 个链接\n`);
+    return links;
     
   } catch (error) {
     console.error(`❌ HDHive: 查询失败: ${error.message}\n`);
@@ -1583,94 +1538,6 @@ app.post('/api/admin/set-user-limit', requireAuth, requireAdmin, async (req, res
   } catch (error) {
     console.error('设置用户限制失败:', error);
     res.status(500).json({ error: '设置失败' });
-  }
-});
-
-// 更新 HDHive 模块（管理员）
-app.post('/api/admin/update-hdhive-module', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const os = require('os');
-    const fs = require('fs');
-    const https = require('https');
-    const path = require('path');
-    
-    // 检测操作系统和架构
-    const platform = os.platform();
-    const arch = os.arch();
-    
-    let moduleUrl;
-    let moduleName;
-    
-    if (platform === 'darwin') {
-      // macOS
-      moduleUrl = 'https://raw.githubusercontent.com/mrtian2016/hdhive_resource/main/hdhive.cpython-312-darwin.so';
-      moduleName = 'hdhive.cpython-312-darwin.so';
-    } else if (platform === 'linux' && arch === 'x64') {
-      // Linux x86_64
-      moduleUrl = 'https://raw.githubusercontent.com/mrtian2016/hdhive_resource/main/hdhive.cpython-312-x86_64-linux-gnu.so';
-      moduleName = 'hdhive.cpython-312-x86_64-linux-gnu.so';
-    } else {
-      return res.status(400).json({ 
-        error: `不支持的平台: ${platform} ${arch}`,
-        message: '目前只支持 macOS 和 Linux x86_64'
-      });
-    }
-    
-    console.log(`\n🔄 开始更新 HDHive 模块...`);
-    console.log(`   平台: ${platform} ${arch}`);
-    console.log(`   下载地址: ${moduleUrl}`);
-    
-    const modulePath = path.join(__dirname, 'hdhive_module', moduleName);
-    const tempPath = modulePath + '.tmp';
-    
-    // 下载文件
-    await new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(tempPath);
-      
-      https.get(moduleUrl, (response) => {
-        if (response.statusCode !== 200) {
-          reject(new Error(`下载失败: HTTP ${response.statusCode}`));
-          return;
-        }
-        
-        response.pipe(file);
-        
-        file.on('finish', () => {
-          file.close();
-          console.log(`   ✓ 下载完成`);
-          resolve();
-        });
-      }).on('error', (err) => {
-        fs.unlink(tempPath, () => {});
-        reject(err);
-      });
-    });
-    
-    // 备份旧文件
-    if (fs.existsSync(modulePath)) {
-      const backupPath = modulePath + '.backup';
-      fs.renameSync(modulePath, backupPath);
-      console.log(`   ✓ 已备份旧文件`);
-    }
-    
-    // 替换文件
-    fs.renameSync(tempPath, modulePath);
-    fs.chmodSync(modulePath, 0o755);
-    console.log(`   ✓ 模块已更新`);
-    console.log(`✅ HDHive 模块更新完成\n`);
-    
-    res.json({ 
-      success: true, 
-      message: 'HDHive 模块更新成功',
-      platform: `${platform} ${arch}`,
-      moduleName: moduleName
-    });
-    
-  } catch (error) {
-    console.error('❌ 更新 HDHive 模块失败:', error);
-    res.status(500).json({ 
-      error: '更新失败: ' + error.message 
-    });
   }
 });
 
