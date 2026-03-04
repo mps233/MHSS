@@ -10,6 +10,11 @@ hdhive_state.json
 auto_search_new.json
 user_data.json
 
+# HDHive 测试截图
+hdhive_*.png
+login_page.png
+media_page.png
+
 # 新的状态文件
 data/app_state.json
 
@@ -24,3 +29,4 @@ __pycache__/
 
 # 研究/测试代码
 study/
+neo-temp/

@@ -28,14 +28,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 # 验证版本
 RUN node --version && npm --version
 
-# 安装 Python 依赖
-RUN pip3 install --break-system-packages --no-cache-dir pyjwt requests playwright
-
-# 安装 Playwright Chromium Headless Shell（轻量版，约 158MB）
-# 用于 HDHive 自动登录获取 Cookie
-# 设置环境变量以加速下载
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN python3 -m playwright install chromium-headless-shell --with-deps
+# 安装 Python 依赖（curl-cffi 用于 HDHive API 调用）
+RUN pip3 install --break-system-packages --no-cache-dir pyjwt requests curl_cffi
 
 # 复制 package.json 和 package-lock.json
 COPY package*.json ./
@@ -45,18 +39,6 @@ RUN npm install --production
 
 # 复制项目文件
 COPY . .
-
-# 确保 hdhive_module 目录存在
-RUN mkdir -p hdhive_module
-
-# 删除 macOS 版本的 hdhive 模块（如果存在）
-RUN rm -f hdhive_module/*.dylib hdhive_module/*-darwin.so
-
-# 下载 Linux x86_64 版本的 hdhive 模块（带重试和超时）
-RUN curl -L --retry 3 --retry-delay 2 --max-time 60 \
-    "https://raw.githubusercontent.com/mrtian2016/hdhive_resource/main/hdhive.cpython-312-x86_64-linux-gnu.so" \
-    -o hdhive_module/hdhive.cpython-312-x86_64-linux-gnu.so \
-    && chmod +x hdhive_module/*.so || echo "Warning: hdhive module download failed, will retry at runtime"
 
 # 暴露端口
 EXPOSE 3000

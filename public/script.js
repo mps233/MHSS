@@ -2796,6 +2796,63 @@ async function saveLimitChange(userId, userName) {
   }
 }
 
+// 更新 HDHive 模块
+async function updateHDHiveModule() {
+  if (!confirm('确定要更新 HDHive 模块吗？\n\n这将从 GitHub 下载最新版本并替换当前模块。')) {
+    return;
+  }
+  
+  const button = event.target.closest('button');
+  const originalHTML = button.innerHTML;
+  
+  try {
+    // 显示加载状态
+    button.disabled = true;
+    button.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinning">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M12 6v6l4 2"></path>
+      </svg>
+      更新中...
+    `;
+    
+    const response = await fetchWithAuth('/api/admin/update-hdhive-module', {
+      method: 'POST'
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || '更新失败');
+    }
+    
+    const data = await response.json();
+    
+    // 显示成功状态
+    button.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+      更新成功
+    `;
+    
+    alert(`HDHive 模块更新成功！\n\n平台: ${data.platform}\n模块: ${data.moduleName}`);
+    
+    // 2秒后恢复按钮
+    setTimeout(() => {
+      button.disabled = false;
+      button.innerHTML = originalHTML;
+    }, 2000);
+    
+  } catch (error) {
+    console.error('更新 HDHive 模块失败:', error);
+    alert('更新失败：' + error.message);
+    
+    // 恢复按钮
+    button.disabled = false;
+    button.innerHTML = originalHTML;
+  }
+}
+
 // 加载定时任务状态
 async function loadSchedulerStatus() {
   try {

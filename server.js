@@ -76,53 +76,110 @@ async function fetchWithProxy(url, options = {}, retries = 3) {
   }
 }
 
-// 查询 HDHive 可用 115 链接（免费 + 已解锁，使用 Python 桥接）
+// HDHive 服务进程（已弃用，现在使用 curl-cffi 客户端）
+// let hdhiveService = null;
+// let hdhiveServiceReady = false;
+// let hdhiveServiceStarting = false;
+// let hdhiveServiceIdleTimer = null;
+// const HDHIVE_SERVICE_IDLE_TIMEOUT = 5 * 60 * 1000;
+
+// 以下函数已弃用（使用 curl-cffi 客户端后不再需要）
+/*
+// 重置空闲计时器
+function resetHDHiveServiceIdleTimer() {
+  if (hdhiveServiceIdleTimer) {
+    clearTimeout(hdhiveServiceIdleTimer);
+  }
+  
+  hdhiveServiceIdleTimer = setTimeout(async () => {
+    console.log('⏱️  HDHive 服务空闲超过 5 分钟，自动关闭...');
+    await stopHDHiveService();
+  }, HDHIVE_SERVICE_IDLE_TIMEOUT);
+}
+
+async function startHDHiveService() {
+  // ... (已弃用)
+}
+
+async function stopHDHiveService() {
+  // ... (已弃用)
+}
+*/
+
+// 查询 HDHive 可用 115 链接（使用 curl-cffi 客户端）
 async function getHDHiveFreeLinks(tmdbId, mediaType) {
   if (!HDHIVE_ENABLED) {
     return [];
   }
   
-  // 检查是否配置了 Cookie 或账号密码
-  if (!HDHIVE_COOKIE && (!HDHIVE_USERNAME || !HDHIVE_PASSWORD)) {
+  // 检查是否配置了账号密码
+  if (!HDHIVE_USERNAME || !HDHIVE_PASSWORD) {
     return [];
   }
   
   try {
     console.log(`\n🔍 HDHive: 开始查询 tmdb_id=${tmdbId} type=${mediaType}`);
     
-    const { exec } = require('child_process');
-    const util = require('util');
-    const execPromise = util.promisify(exec);
-    
     const type = mediaType === 'movie' ? 'movie' : 'tv';
     
-    // 构建命令：传递 Cookie、用户名和密码
-    const cmd = `python3.12 hdhive_bridge.py ${tmdbId} ${type} "${HDHIVE_COOKIE}" "${HDHIVE_USERNAME}" "${HDHIVE_PASSWORD}"`;
+    // 调用 curl-cffi 客户端
+    const { spawn } = require('child_process');
     
-    // 设置 2 分钟超时，给 HDHive API 足够的响应时间
-    const { stdout, stderr } = await execPromise(cmd, { 
-      timeout: 120000,  // 2分钟超时
-      maxBuffer: 10 * 1024 * 1024 // 10MB buffer
-    });
-    
-    // 输出 Python 的 stderr（日志信息）到服务器日志
-    if (stderr) {
-      const lines = stderr.trim().split('\n');
-      lines.forEach(line => {
-        if (line && !line.includes('DeprecationWarning')) {
-          console.log(`   ${line}`);
+    const result = await new Promise((resolve, reject) => {
+      const process = spawn('python3', [
+        'hdhive_curl_client.py',
+        'tmdb',
+        tmdbId.toString(),
+        type,
+        HDHIVE_USERNAME,
+        HDHIVE_PASSWORD
+      ]);
+      
+      let stdout = '';
+      let stderr = '';
+      
+      process.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+      
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+        // 输出日志到控制台
+        const lines = data.toString().trim().split('\n');
+        lines.forEach(line => {
+          if (line) {
+            console.log(`   [HDHive] ${line}`);
+          }
+        });
+      });
+      
+      process.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const result = JSON.parse(stdout.trim());
+            resolve(result);
+          } catch (e) {
+            reject(new Error(`解析 JSON 失败: ${e.message}`));
+          }
+        } else {
+          reject(new Error(`进程退出码: ${code}`));
         }
       });
-    }
-    
-    // 只解析 stdout 的最后一行（JSON 结果）
-    const lines = stdout.trim().split('\n');
-    const jsonLine = lines[lines.length - 1];
-    const result = JSON.parse(jsonLine);
+      
+      process.on('error', (error) => {
+        reject(error);
+      });
+      
+      // 3分钟超时
+      setTimeout(() => {
+        process.kill();
+        reject(new Error('查询超时'));
+      }, 180000);
+    });
     
     if (result.success) {
       const links = result.links || [];
-      console.log(`🎉 HDHive: 查询完成，找到 ${links.length} 个链接（免费或已解锁）\n`);
+      console.log(`🎉 HDHive: 查询完成，找到 ${links.length} 个链接\n`);
       return links;
     } else {
       console.error(`❌ HDHive: 查询失败: ${result.error}\n`);
@@ -130,50 +187,7 @@ async function getHDHiveFreeLinks(tmdbId, mediaType) {
     }
     
   } catch (error) {
-    // 超时错误
-    if (error.killed || error.signal === 'SIGTERM') {
-      console.error(`⏱️  HDHive: 查询超时（20秒），跳过\n`);
-      return [];
-    }
-    
     console.error(`❌ HDHive: 查询失败: ${error.message}\n`);
-    
-    // 尝试从 stderr 中提取 JSON（Python 脚本的 stdout 可能被重定向到 stderr）
-    let outputToTry = error.stdout || error.stderr || '';
-    
-    if (outputToTry) {
-      try {
-        // 查找 JSON 行（以 { 开头的行）
-        const lines = outputToTry.trim().split('\n');
-        let jsonLine = null;
-        
-        // 从后往前找第一个 JSON 行
-        for (let i = lines.length - 1; i >= 0; i--) {
-          const line = lines[i].trim();
-          if (line.startsWith('{') && line.endsWith('}')) {
-            jsonLine = line;
-            break;
-          }
-        }
-        
-        if (jsonLine) {
-          console.log(`   找到 JSON: ${jsonLine.substring(0, 100)}...`);
-          const result = JSON.parse(jsonLine);
-          
-          if (result.success && result.links && result.links.length > 0) {
-            console.log(`✅ HDHive: 成功找到 ${result.links.length} 个链接\n`);
-            return result.links;
-          } else {
-            console.log(`   JSON 解析成功但没有链接: success=${result.success}, count=${result.count}`);
-          }
-        } else {
-          console.log(`   未找到 JSON 行`);
-        }
-      } catch (parseError) {
-        console.error(`   无法解析输出: ${parseError.message}`);
-      }
-    }
-    
     return [];
   }
 }
@@ -1569,6 +1583,94 @@ app.post('/api/admin/set-user-limit', requireAuth, requireAdmin, async (req, res
   } catch (error) {
     console.error('设置用户限制失败:', error);
     res.status(500).json({ error: '设置失败' });
+  }
+});
+
+// 更新 HDHive 模块（管理员）
+app.post('/api/admin/update-hdhive-module', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const os = require('os');
+    const fs = require('fs');
+    const https = require('https');
+    const path = require('path');
+    
+    // 检测操作系统和架构
+    const platform = os.platform();
+    const arch = os.arch();
+    
+    let moduleUrl;
+    let moduleName;
+    
+    if (platform === 'darwin') {
+      // macOS
+      moduleUrl = 'https://raw.githubusercontent.com/mrtian2016/hdhive_resource/main/hdhive.cpython-312-darwin.so';
+      moduleName = 'hdhive.cpython-312-darwin.so';
+    } else if (platform === 'linux' && arch === 'x64') {
+      // Linux x86_64
+      moduleUrl = 'https://raw.githubusercontent.com/mrtian2016/hdhive_resource/main/hdhive.cpython-312-x86_64-linux-gnu.so';
+      moduleName = 'hdhive.cpython-312-x86_64-linux-gnu.so';
+    } else {
+      return res.status(400).json({ 
+        error: `不支持的平台: ${platform} ${arch}`,
+        message: '目前只支持 macOS 和 Linux x86_64'
+      });
+    }
+    
+    console.log(`\n🔄 开始更新 HDHive 模块...`);
+    console.log(`   平台: ${platform} ${arch}`);
+    console.log(`   下载地址: ${moduleUrl}`);
+    
+    const modulePath = path.join(__dirname, 'hdhive_module', moduleName);
+    const tempPath = modulePath + '.tmp';
+    
+    // 下载文件
+    await new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(tempPath);
+      
+      https.get(moduleUrl, (response) => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`下载失败: HTTP ${response.statusCode}`));
+          return;
+        }
+        
+        response.pipe(file);
+        
+        file.on('finish', () => {
+          file.close();
+          console.log(`   ✓ 下载完成`);
+          resolve();
+        });
+      }).on('error', (err) => {
+        fs.unlink(tempPath, () => {});
+        reject(err);
+      });
+    });
+    
+    // 备份旧文件
+    if (fs.existsSync(modulePath)) {
+      const backupPath = modulePath + '.backup';
+      fs.renameSync(modulePath, backupPath);
+      console.log(`   ✓ 已备份旧文件`);
+    }
+    
+    // 替换文件
+    fs.renameSync(tempPath, modulePath);
+    fs.chmodSync(modulePath, 0o755);
+    console.log(`   ✓ 模块已更新`);
+    console.log(`✅ HDHive 模块更新完成\n`);
+    
+    res.json({ 
+      success: true, 
+      message: 'HDHive 模块更新成功',
+      platform: `${platform} ${arch}`,
+      moduleName: moduleName
+    });
+    
+  } catch (error) {
+    console.error('❌ 更新 HDHive 模块失败:', error);
+    res.status(500).json({ 
+      error: '更新失败: ' + error.message 
+    });
   }
 });
 
@@ -3359,6 +3461,10 @@ app.post('/api/hdhive/batch-search', requireAuth, async (req, res) => {
           status: 'success',
           message: `成功: ${batchSearchTask.results.success}, 失败: ${batchSearchTask.results.fail}, 共找到 ${batchSearchTask.results.totalLinks} 个链接`
         });
+        
+        // 不立即关闭服务，让空闲超时机制处理
+        // 这样可以避免影响其他正在进行的查询（如新订阅监控）
+        console.log('ℹ️  HDHive 服务将在空闲 5 分钟后自动关闭');
       }
     })();
     

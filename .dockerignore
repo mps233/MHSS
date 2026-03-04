@@ -27,3 +27,4 @@ hdhive-browser-test.js
 test_hdhive_python.py
 # 排除 study 文件夹
 study
+neo-temp
