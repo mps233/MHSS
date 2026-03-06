@@ -4,11 +4,14 @@ FROM node:18-alpine
 # 设置工作目录
 WORKDIR /app
 
-# 复制 package.json 和 package-lock.json
-COPY package*.json ./
+# 安装 yarn
+RUN corepack enable && corepack prepare yarn@stable --activate
 
-# 安装 Node.js 依赖
-RUN npm install --production --verbose
+# 复制 package.json
+COPY package.json ./
+
+# 使用 yarn 安装依赖
+RUN yarn install --production --frozen-lockfile
 
 # 复制项目文件
 COPY . .

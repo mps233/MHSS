@@ -4259,7 +4259,16 @@ async function startServer() {
   // ==================== HDHive 签到任务 ====================
   
   const HDHiveClient = require('./hdhive-client');
-  const schedule = require('node-schedule');
+  
+  // 尝试加载 node-schedule，如果失败则禁用签到功能
+  let schedule;
+  try {
+    schedule = require('node-schedule');
+  } catch (error) {
+    console.warn('⚠️  node-schedule 模块未安装，签到功能将被禁用');
+    console.warn('   如需启用签到功能，请安装依赖: npm install node-schedule');
+    schedule = null;
+  }
   
   // 签到任务状态
   let signinState = {
@@ -4353,6 +4362,12 @@ async function startServer() {
   
   // 启动签到任务
   function startSigninScheduler() {
+    // 检查 node-schedule 是否可用
+    if (!schedule) {
+      console.warn('⚠️  无法启动签到任务: node-schedule 模块未安装');
+      return;
+    }
+    
     // 停止现有任务
     if (signinState.job) {
       signinState.job.cancel();
@@ -4420,6 +4435,14 @@ async function startServer() {
   // 切换签到任务
   app.post('/api/signin/toggle', requireAuth, (req, res) => {
     try {
+      // 检查 node-schedule 是否可用
+      if (!schedule) {
+        return res.status(503).json({ 
+          success: false, 
+          error: 'node-schedule 模块未安装，签到功能不可用' 
+        });
+      }
+      
       const { enabled } = req.body;
       
       signinState.enabled = enabled;
