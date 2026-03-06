@@ -6,8 +6,8 @@ WORKDIR /app
 # 复制 package.json
 COPY package.json ./
 
-# 使用 yarn 1.x 安装依赖
-RUN npm install -g yarn@1.22.19 && yarn install --production
+# 使用自带的 yarn 安装依赖
+RUN yarn install --production
 
 # 第二阶段：使用 Alpine 镜像运行
 FROM node:18-alpine
