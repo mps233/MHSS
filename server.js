@@ -119,7 +119,7 @@ function getHDHiveClient() {
 }
 
 // 查询 HDHive 可用 115 链接（使用 Node.js 客户端）
-async function getHDHiveFreeLinks(tmdbId, mediaType) {
+async function getHDHiveFreeLinks(tmdbId, mediaType, subscription = null) {
   if (!HDHIVE_ENABLED) {
     return [];
   }
@@ -133,10 +133,70 @@ async function getHDHiveFreeLinks(tmdbId, mediaType) {
     console.log(`\n🔍 HDHive: 开始查询 tmdb_id=${tmdbId} type=${mediaType}`);
     
     const type = mediaType === 'movie' ? 'movie' : 'tv';
-    
-    // 使用 Node.js 客户端
     const client = getHDHiveClient();
-    const links = await client.searchFromTmdb(tmdbId.toString(), type);
+    
+    // 获取积分解锁设置
+    const autoUnlockSettings = stateManager.getState('autoUnlock') || {
+      enabled: false,
+      maxPointsPerShow: 10,
+      onlyUnlockIfNoResources: false
+    };
+    
+    // 判断是否需要检查集数
+    let hasEpisodes = false;
+    if (subscription && autoUnlockSettings.onlyUnlockIfNoResources) {
+      // 检查订阅是否有集数
+      if (subscription.episodes && Array.isArray(subscription.episodes) && subscription.episodes.length > 0) {
+        const episodeData = subscription.episodes[0];
+        
+        // 检查是否有实际的集数数据
+        if (episodeData.episodes_arr && Object.keys(episodeData.episodes_arr).length > 0) {
+          hasEpisodes = true;
+          const episodeCount = Object.values(episodeData.episodes_arr).reduce((sum, arr) => sum + arr.length, 0);
+          console.log(`  ℹ️  订阅已有集数（${episodeCount} 集），跳过积分解锁`);
+        } else {
+          // episodes_arr 为空，检查是否有自定义链接
+          const hasCustomLinks = subscription.user_custom_links && 
+                                 Array.isArray(subscription.user_custom_links) && 
+                                 subscription.user_custom_links.length > 0;
+          
+          if (hasCustomLinks) {
+            hasEpisodes = true;
+            console.log(`  ℹ️  订阅已有 ${subscription.user_custom_links.length} 个自定义链接，跳过积分解锁`);
+          } else {
+            console.log(`  ℹ️  订阅 episodes_arr 为空且无自定义链接，启用积分解锁`);
+          }
+        }
+      } else {
+        // 没有 episodes 数据，检查是否有自定义链接
+        const hasCustomLinks = subscription.user_custom_links && 
+                               Array.isArray(subscription.user_custom_links) && 
+                               subscription.user_custom_links.length > 0;
+        
+        if (hasCustomLinks) {
+          hasEpisodes = true;
+          console.log(`  ℹ️  订阅无 episodes 数据但有 ${subscription.user_custom_links.length} 个自定义链接，跳过积分解锁`);
+        } else {
+          console.log(`  ℹ️  订阅无 episodes 数据且无自定义链接，启用积分解锁`);
+        }
+      }
+    }
+    
+    // 决定是否使用积分解锁
+    const usePoints = autoUnlockSettings.enabled && !hasEpisodes;
+    
+    let links;
+    if (usePoints) {
+      // 使用智能搜索（支持积分解锁）
+      console.log(`  💰 启用积分解锁（最大 ${autoUnlockSettings.maxPointsPerShow} 积分）`);
+      links = await client.searchFromTmdbWithUnlock(tmdbId.toString(), type, {
+        usePoints: true,
+        maxPoints: autoUnlockSettings.maxPointsPerShow
+      });
+    } else {
+      // 只查找免费资源
+      links = await client.searchFromTmdb(tmdbId.toString(), type);
+    }
     
     console.log(`🎉 HDHive: 查询完成，找到 ${links.length} 个链接\n`);
     return links;
@@ -459,7 +519,7 @@ async function monitorSubscriptionAndSearch(subscription, title, mediaType, tmdb
         
         if (needSearch) {
           console.log(`   🔍 开始查找影巢资源...`);
-          const links = await getHDHiveFreeLinks(tmdbId, mediaType);
+          const links = await getHDHiveFreeLinks(tmdbId, mediaType, sub);
           
           if (links && links.length > 0) {
             console.log(`   ✓ 找到 ${links.length} 个可用链接`);
@@ -1250,13 +1310,20 @@ setInterval(() => {
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   
-  if (!token || !sessions.has(token)) {
+  if (!token) {
+    console.log('❌ requireAuth: 未提供 token');
+    return res.status(401).json({ error: '未登录或登录已过期' });
+  }
+  
+  if (!sessions.has(token)) {
+    console.log(`❌ requireAuth: token 无效或已过期 (sessions size: ${sessions.size})`);
     return res.status(401).json({ error: '未登录或登录已过期' });
   }
   
   const session = sessions.get(token);
   if (Date.now() > session.expiresAt) {
     sessions.delete(token);
+    console.log('❌ requireAuth: session 已过期');
     return res.status(401).json({ error: '登录已过期' });
   }
   
@@ -3238,7 +3305,7 @@ app.post('/api/hdhive/batch-search', requireAuth, async (req, res) => {
         // 获取对应的订阅数据
         const fullSubscription = subscriptionMap.get(subscriptionId);
         try {
-          const hdhiveLinks = await getHDHiveFreeLinks(tmdbId, mediaType);
+          const hdhiveLinks = await getHDHiveFreeLinks(tmdbId, mediaType, fullSubscription);
           
           // 检查任务是否在异步操作期间被停止或被新任务替换
           if (!batchSearchTask.running || batchSearchTask.currentTaskId !== taskStartTime) {
@@ -3666,7 +3733,7 @@ app.post('/api/request', requireAuth, checkRequestLimit, async (req, res) => {
               if (needSearch) {
                 // 查找影巢链接
                 console.log(`   🔍 开始查找影巢资源...`);
-                const links = await getHDHiveFreeLinks(id, mediaType);
+                const links = await getHDHiveFreeLinks(id, mediaType, subscription);
                 
                 if (links && links.length > 0) {
                   console.log(`   ✓ 找到 ${links.length} 个可用链接`);
@@ -3985,7 +4052,7 @@ async function startServer() {
         console.log(`\n   [${i + 1}/${incompleteSubscriptions.length}] 查找: ${title}`);
         
         try {
-          const links = await getHDHiveFreeLinks(params.tmdb_id, params.media_type);
+          const links = await getHDHiveFreeLinks(params.tmdb_id, params.media_type, sub);
           
           if (links && links.length > 0) {
             console.log(`   ✓ 找到 ${links.length} 个链接`);
@@ -4187,6 +4254,403 @@ async function startServer() {
   loadSchedulerState();
   if (schedulerState.enabled) {
     startScheduler();
+  }
+  
+  // ==================== HDHive 签到任务 ====================
+  
+  const HDHiveClient = require('./hdhive-client');
+  const schedule = require('node-schedule');
+  
+  // 签到任务状态
+  let signinState = {
+    enabled: false,
+    mode: 'normal',  // 'normal' 或 'gamble'
+    time: '08:00',   // 每天签到时间 (HH:mm)
+    lastRun: null,
+    nextRun: null,
+    job: null
+  };
+  
+  // 加载签到状态
+  function loadSigninState() {
+    try {
+      const appState = stateManager.getState('app') || {};
+      const loaded = appState.signin || {};
+      signinState = { ...signinState, ...loaded, job: null };
+      console.log('📂 已加载签到任务状态');
+    } catch (error) {
+      console.error('⚠️  加载签到任务状态失败:', error.message);
+    }
+  }
+  
+  // 保存签到状态
+  function saveSigninState() {
+    try {
+      const appState = stateManager.getState('app') || {};
+      
+      const stateToSave = {
+        enabled: signinState.enabled,
+        mode: signinState.mode,
+        time: signinState.time,
+        lastRun: signinState.lastRun,
+        nextRun: signinState.nextRun
+      };
+      
+      appState.signin = stateToSave;
+      stateManager.setState('app', appState);
+    } catch (error) {
+      console.error('⚠️  保存签到任务状态失败:', error.message);
+    }
+  }
+  
+  // 执行签到
+  async function executeSignin() {
+    try {
+      console.log('\n' + '='.repeat(60));
+      console.log('🎯 开始执行自动签到任务');
+      console.log('='.repeat(60));
+      
+      if (!HDHIVE_USERNAME || !HDHIVE_PASSWORD) {
+        console.error('❌ 未配置 HDHive 账号密码，无法执行签到');
+        return { success: false, error: '未配置账号密码' };
+      }
+      
+      const client = new HDHiveClient(HDHIVE_USERNAME, HDHIVE_PASSWORD);
+      
+      // 执行签到
+      const gamble = signinState.mode === 'gamble';
+      const result = await client.signin(gamble);
+      
+      // 更新最后运行时间
+      signinState.lastRun = Date.now();
+      saveSigninState();
+      
+      // 输出结果
+      console.log('\n📊 签到结果:');
+      console.log(`  模式: ${result.mode}`);
+      console.log(`  成功: ${result.success}`);
+      console.log(`  消息: ${result.message}`);
+      if (result.description) {
+        console.log(`  详情: ${result.description}`);
+      }
+      
+      if (result.success) {
+        console.log('\n✅ 自动签到成功！');
+      } else if (result.alreadySigned) {
+        console.log('\n⚠️  今天已经签到过了');
+      } else {
+        console.log('\n❌ 签到失败');
+      }
+      
+      console.log('='.repeat(60));
+      
+      return result;
+    } catch (error) {
+      console.error('❌ 签到任务执行失败:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  // 启动签到任务
+  function startSigninScheduler() {
+    // 停止现有任务
+    if (signinState.job) {
+      signinState.job.cancel();
+      signinState.job = null;
+    }
+    
+    if (!signinState.enabled) {
+      console.log('📅 签到任务未启用');
+      return;
+    }
+    
+    // 解析时间
+    const [hour, minute] = signinState.time.split(':').map(Number);
+    
+    // 创建定时任务（每天指定时间执行）
+    const cronExpression = `${minute} ${hour} * * *`;
+    
+    signinState.job = schedule.scheduleJob(cronExpression, async () => {
+      await executeSignin();
+    });
+    
+    // 计算下次运行时间
+    const now = new Date();
+    const nextRun = new Date();
+    nextRun.setHours(hour, minute, 0, 0);
+    
+    // 如果今天的时间已过，设置为明天
+    if (nextRun <= now) {
+      nextRun.setDate(nextRun.getDate() + 1);
+    }
+    
+    signinState.nextRun = nextRun.getTime();
+    saveSigninState();
+    
+    console.log(`📅 签到任务已启动`);
+    console.log(`   模式: ${signinState.mode === 'gamble' ? '赌狗签到' : '普通签到'}`);
+    console.log(`   时间: 每天 ${signinState.time}`);
+    console.log(`   下次运行: ${nextRun.toLocaleString('zh-CN')}`);
+  }
+  
+  // 停止签到任务
+  function stopSigninScheduler() {
+    if (signinState.job) {
+      signinState.job.cancel();
+      signinState.job = null;
+    }
+    signinState.nextRun = null;
+    saveSigninState();
+    console.log('📅 签到任务已停止');
+  }
+  
+  // 签到任务 API
+  
+  // 获取签到任务状态
+  app.get('/api/signin/status', (req, res) => {
+    res.json({
+      enabled: signinState.enabled,
+      mode: signinState.mode,
+      time: signinState.time,
+      lastRun: signinState.lastRun,
+      nextRun: signinState.nextRun
+    });
+  });
+  
+  // 切换签到任务
+  app.post('/api/signin/toggle', requireAuth, (req, res) => {
+    try {
+      const { enabled } = req.body;
+      
+      signinState.enabled = enabled;
+      
+      if (enabled) {
+        startSigninScheduler();
+      } else {
+        stopSigninScheduler();
+      }
+      
+      res.json({ 
+        success: true, 
+        enabled: signinState.enabled,
+        nextRun: signinState.nextRun
+      });
+    } catch (error) {
+      console.error('切换签到任务失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+  
+  // 更新签到任务配置
+  app.post('/api/signin/config', requireAuth, (req, res) => {
+    try {
+      const { mode, time } = req.body;
+      
+      // 验证模式
+      if (mode && !['normal', 'gamble'].includes(mode)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: '签到模式必须是 normal 或 gamble' 
+        });
+      }
+      
+      // 验证时间格式
+      if (time) {
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        if (!timeRegex.test(time)) {
+          return res.status(400).json({ 
+            success: false, 
+            error: '时间格式必须是 HH:mm (例如: 08:00)' 
+          });
+        }
+      }
+      
+      // 更新配置
+      if (mode) signinState.mode = mode;
+      if (time) signinState.time = time;
+      
+      saveSigninState();
+      
+      // 如果任务已启用，重新启动以应用新配置
+      if (signinState.enabled) {
+        startSigninScheduler();
+      }
+      
+      res.json({ 
+        success: true,
+        mode: signinState.mode,
+        time: signinState.time,
+        nextRun: signinState.nextRun
+      });
+    } catch (error) {
+      console.error('更新签到任务配置失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+  
+  // 手动执行签到
+  app.post('/api/signin/execute', requireAuth, async (req, res) => {
+    try {
+      const { mode } = req.body;
+      
+      // 验证模式
+      if (mode && !['normal', 'gamble'].includes(mode)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: '签到模式必须是 normal 或 gamble' 
+        });
+      }
+      
+      // 临时修改模式（如果指定）
+      const originalMode = signinState.mode;
+      if (mode) {
+        signinState.mode = mode;
+      }
+      
+      // 执行签到
+      const result = await executeSignin();
+      
+      // 恢复原模式
+      if (mode) {
+        signinState.mode = originalMode;
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error('手动签到失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+  
+  // 更新签到 Action ID
+  app.post('/api/signin/action-id', requireAuth, async (req, res) => {
+    try {
+      const { actionId } = req.body;
+      
+      if (!actionId) {
+        return res.status(400).json({ 
+          success: false, 
+          error: '请提供 Action ID' 
+        });
+      }
+      
+      // 验证 Action ID 格式（40位十六进制）
+      if (!/^[a-f0-9]{40}$/.test(actionId)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Action ID 格式不正确（应为40位十六进制字符串）' 
+        });
+      }
+      
+      // 保存新的 Action ID
+      const HDHiveClient = require('./hdhive-client');
+      const client = new HDHiveClient(HDHIVE_USERNAME, HDHIVE_PASSWORD);
+      client._saveSigninActionId(actionId);
+      
+      res.json({ 
+        success: true,
+        message: '签到 Action ID 已更新',
+        actionId: actionId
+      });
+    } catch (error) {
+      console.error('更新签到 Action ID 失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+  
+  // 获取当前签到 Action ID
+  app.get('/api/signin/action-id', requireAuth, (req, res) => {
+    try {
+      const HDHiveClient = require('./hdhive-client');
+      const client = new HDHiveClient(HDHIVE_USERNAME, HDHIVE_PASSWORD);
+      const actionId = client._getSigninActionId();
+      
+      res.json({ 
+        success: true,
+        actionId: actionId
+      });
+    } catch (error) {
+      console.error('获取签到 Action ID 失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+  
+  // ==================== 积分解锁设置 API ====================
+  
+  // 获取积分解锁设置
+  app.get('/api/auto-unlock/settings', requireAuth, (req, res) => {
+    try {
+      const autoUnlock = stateManager.getState('autoUnlock') || {
+        enabled: false,
+        maxPointsPerShow: 10,
+        onlyUnlockIfNoResources: false
+      };
+      
+      res.json(autoUnlock);
+    } catch (error) {
+      console.error('获取积分解锁设置失败:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // 保存积分解锁设置
+  app.post('/api/auto-unlock/settings', requireAuth, (req, res) => {
+    try {
+      const { enabled, maxPointsPerShow, onlyUnlockIfNoResources } = req.body;
+      
+      const autoUnlock = {
+        enabled: enabled || false,
+        maxPointsPerShow: maxPointsPerShow || 10,
+        onlyUnlockIfNoResources: onlyUnlockIfNoResources || false
+      };
+      stateManager.setState('autoUnlock', autoUnlock);
+      
+      console.log(`✓ 积分解锁设置已更新: 启用=${enabled}, 最大积分=${maxPointsPerShow}, 仅无资源=${onlyUnlockIfNoResources}`);
+      
+      res.json({ 
+        success: true,
+        message: '设置已保存',
+        settings: autoUnlock
+      });
+    } catch (error) {
+      console.error('保存积分解锁设置失败:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // 获取当前 HDHive 积分
+  app.get('/api/hdhive/points', requireAuth, async (req, res) => {
+    try {
+      if (!HDHIVE_USERNAME || !HDHIVE_PASSWORD) {
+        return res.status(400).json({ error: '未配置 HDHive 账号' });
+      }
+      
+      const HDHiveClient = require('./hdhive-client');
+      const client = new HDHiveClient(HDHIVE_USERNAME, HDHIVE_PASSWORD);
+      
+      // 获取用户积分信息
+      const userInfo = await client.getUserPoints();
+      
+      res.json({ 
+        points: userInfo.points,
+        signinDays: userInfo.signinDays,
+        nickname: userInfo.nickname,
+        isVip: userInfo.isVip
+      });
+    } catch (error) {
+      console.error('获取 HDHive 积分失败:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // ==================== 签到任务初始化 ====================
+  
+  // 加载签到任务状态并启动
+  loadSigninState();
+  if (signinState.enabled && HDHIVE_USERNAME && HDHIVE_PASSWORD) {
+    startSigninScheduler();
+  } else if (signinState.enabled) {
+    console.log('⚠️  签到任务已启用但未配置 HDHive 账号密码');
   }
   
   // ==================== 启动服务器 ====================
