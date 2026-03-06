@@ -1,5 +1,5 @@
-# 使用 Node.js 18 官方镜像（Alpine 版本，更小更快）
-FROM node:18-alpine
+# 使用 Node.js 18 官方镜像（标准版本，包含完整的构建工具）
+FROM node:18
 
 # 设置工作目录
 WORKDIR /app
@@ -7,8 +7,8 @@ WORKDIR /app
 # 复制 package.json 和 package-lock.json
 COPY package*.json ./
 
-# 安装 Node.js 依赖（不使用 package-lock.json，让 npm 重新解析依赖）
-RUN npm install --production --no-package-lock
+# 安装 Node.js 依赖
+RUN npm install --production
 
 # 复制项目文件
 COPY . .
