@@ -3,6 +3,9 @@ node_modules/
 .DS_Store
 *.log
 
+# Kiro 配置和 specs
+.kiro/
+
 # 旧的状态文件（已迁移到 data/app_state.json）
 sessions.json
 scheduler_state.json
@@ -30,3 +33,4 @@ __pycache__/
 # 研究/测试代码
 study/
 neo-temp/
+parse-user-data.js
