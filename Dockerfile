@@ -7,8 +7,12 @@ WORKDIR /app
 # 复制 package.json 和 package-lock.json
 COPY package*.json ./
 
-# 安装 Node.js 依赖
-RUN npm install --production
+# 安装 Node.js 依赖（显示详细日志）
+RUN npm install --production && \
+    echo "✓ 依赖安装完成，验证关键模块..." && \
+    node -e "require('node-schedule'); console.log('✓ node-schedule 已安装')" && \
+    node -e "require('express'); console.log('✓ express 已安装')" && \
+    node -e "require('node-fetch'); console.log('✓ node-fetch 已安装')"
 
 # 复制项目文件
 COPY . .
