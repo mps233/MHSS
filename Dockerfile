@@ -3,11 +3,11 @@ FROM node:18 AS builder
 
 WORKDIR /app
 
-# 复制 package.json 和 package-lock.json
-COPY package*.json ./
+# 复制 package.json
+COPY package.json ./
 
-# 安装所有依赖（包括需要编译的）
-RUN npm install --production
+# 使用 yarn 1.x 安装依赖
+RUN npm install -g yarn@1.22.19 && yarn install --production
 
 # 第二阶段：使用 Alpine 镜像运行
 FROM node:18-alpine
@@ -18,7 +18,7 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 
 # 复制 package.json
-COPY package*.json ./
+COPY package.json ./
 
 # 复制项目文件
 COPY . .
