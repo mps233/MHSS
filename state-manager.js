@@ -3,6 +3,17 @@ const path = require('path');
 
 // 状态文件路径
 const STATE_FILE = path.join(__dirname, 'data', 'app_state.json');
+const DATA_DIR = path.join(__dirname, 'data');
+
+// 确保 data 目录存在
+if (!fs.existsSync(DATA_DIR)) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    console.log('✓ 已创建 data 目录');
+  } catch (error) {
+    console.error('❌ 创建 data 目录失败:', error.message);
+  }
+}
 
 // 旧文件路径（用于迁移）
 const OLD_FILES = {

@@ -13,6 +13,9 @@ RUN npm install --production
 # 复制项目文件
 COPY . .
 
+# 创建 data 目录并设置权限
+RUN mkdir -p /app/data && chmod 777 /app/data
+
 # 暴露端口
 EXPOSE 3000
 
