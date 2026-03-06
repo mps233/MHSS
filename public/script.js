@@ -2495,9 +2495,10 @@ function toggleAdminPanel() {
   const panel = document.getElementById('adminPanel');
   panel.classList.toggle('active');
   
-  // 打开时加载用户统计
+  // 打开时加载用户统计和积分设置
   if (panel.classList.contains('active')) {
     refreshUserStats();
+    loadAutoUnlockSettings();
   }
 }
 
@@ -2796,62 +2797,92 @@ async function saveLimitChange(userId, userName) {
   }
 }
 
-// 更新 HDHive 模块
-async function updateHDHiveModule() {
-  if (!confirm('确定要更新 HDHive 模块吗？\n\n这将从 GitHub 下载最新版本并替换当前模块。')) {
-    return;
-  }
-  
-  const button = event.target.closest('button');
-  const originalHTML = button.innerHTML;
-  
+// ==================== 积分解锁设置 ====================
+
+// 加载积分解锁设置
+async function loadAutoUnlockSettings() {
   try {
-    // 显示加载状态
-    button.disabled = true;
-    button.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinning">
-        <circle cx="12" cy="12" r="10"></circle>
-        <path d="M12 6v6l4 2"></path>
-      </svg>
-      更新中...
-    `;
-    
-    const response = await fetchWithAuth('/api/admin/update-hdhive-module', {
-      method: 'POST'
-    });
-    
+    const response = await fetchWithAuth('/api/auto-unlock/settings');
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || '更新失败');
+      throw new Error('加载设置失败');
     }
     
     const data = await response.json();
     
-    // 显示成功状态
-    button.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="20 6 9 17 4 12"></polyline>
-      </svg>
-      更新成功
-    `;
+    // 更新 UI
+    document.getElementById('autoUnlockEnabled').checked = data.enabled || false;
+    document.getElementById('maxPointsPerShow').value = data.maxPointsPerShow || 10;
+    document.getElementById('onlyUnlockIfNoResources').checked = data.onlyUnlockIfNoResources || false;
     
-    alert(`HDHive 模块更新成功！\n\n平台: ${data.platform}\n模块: ${data.moduleName}`);
-    
-    // 2秒后恢复按钮
-    setTimeout(() => {
-      button.disabled = false;
-      button.innerHTML = originalHTML;
-    }, 2000);
-    
+    // 加载当前积分
+    loadCurrentPoints();
   } catch (error) {
-    console.error('更新 HDHive 模块失败:', error);
-    alert('更新失败：' + error.message);
-    
-    // 恢复按钮
-    button.disabled = false;
-    button.innerHTML = originalHTML;
+    console.error('加载积分解锁设置失败:', error);
   }
 }
+
+// 保存积分解锁设置
+async function saveAutoUnlockSettings() {
+  const enabled = document.getElementById('autoUnlockEnabled').checked;
+  const maxPointsPerShow = parseInt(document.getElementById('maxPointsPerShow').value) || 10;
+  const onlyUnlockIfNoResources = document.getElementById('onlyUnlockIfNoResources').checked;
+  
+  try {
+    const response = await fetchWithAuth('/api/auto-unlock/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        enabled,
+        maxPointsPerShow,
+        onlyUnlockIfNoResources
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('保存设置失败');
+    }
+    
+    console.log('✓ 积分解锁设置已保存');
+  } catch (error) {
+    console.error('保存积分解锁设置失败:', error);
+    alert('保存失败：' + error.message);
+  }
+}
+
+// 加载当前积分
+async function loadCurrentPoints() {
+  try {
+    const response = await fetchWithAuth('/api/hdhive/points');
+    if (!response.ok) {
+      throw new Error('获取积分失败');
+    }
+    
+    const data = await response.json();
+    const pointsElement = document.getElementById('currentPoints');
+    
+    if (data.points !== undefined) {
+      pointsElement.textContent = data.points;
+      
+      // 根据积分数量改变颜色
+      if (data.points < 10) {
+        pointsElement.style.color = '#ef4444'; // 红色
+      } else if (data.points < 50) {
+        pointsElement.style.color = '#eab308'; // 黄色
+      } else {
+        pointsElement.style.color = 'var(--primary)'; // 紫色
+      }
+    } else {
+      pointsElement.textContent = '--';
+    }
+  } catch (error) {
+    console.error('获取当前积分失败:', error);
+    document.getElementById('currentPoints').textContent = '--';
+  }
+}
+
+// ==================== HDHive 模块管理 ====================
 
 // 加载定时任务状态
 async function loadSchedulerStatus() {
@@ -3491,3 +3522,185 @@ window.addEventListener('load', async () => {
     console.error('检查任务状态失败:', error);
   }
 });
+
+// ==================== HDHive 签到任务 ====================
+
+// 加载签到任务状态
+async function loadSigninStatus() {
+  try {
+    const response = await fetchWithAuth('/api/signin/status');
+    const data = await response.json();
+    
+    const toggle = document.getElementById('signinToggle');
+    const statusBadge = document.getElementById('signinStatusBadge');
+    const lastTimeEl = document.getElementById('signinLastTime');
+    const nextTimeEl = document.getElementById('signinNextTime');
+    const modeSelect = document.getElementById('signinMode');
+    const timeInput = document.getElementById('signinTime');
+    
+    if (toggle) toggle.checked = data.enabled;
+    
+    if (statusBadge) {
+      statusBadge.textContent = data.enabled ? '✓ 已启用' : '✕ 未启用';
+      statusBadge.className = data.enabled ? 'status-badge active' : 'status-badge inactive';
+    }
+    
+    if (modeSelect) modeSelect.value = data.mode || 'normal';
+    if (timeInput) timeInput.value = data.time || '09:00';
+    
+    if (lastTimeEl) {
+      if (data.lastRun) {
+        const lastDate = new Date(data.lastRun);
+        lastTimeEl.textContent = `上次签到: ${lastDate.toLocaleString('zh-CN')}`;
+      } else {
+        lastTimeEl.textContent = '上次签到: -';
+      }
+    }
+    
+    if (nextTimeEl) {
+      if (data.enabled && data.nextRun) {
+        const nextDate = new Date(data.nextRun);
+        nextTimeEl.textContent = `下次签到: ${nextDate.toLocaleString('zh-CN')}`;
+      } else {
+        nextTimeEl.textContent = '下次签到: -';
+      }
+    }
+  } catch (error) {
+    console.error('加载签到任务状态失败:', error);
+  }
+}
+
+// 切换签到任务
+async function toggleSignin(enabled) {
+  try {
+    const response = await fetchWithAuth('/api/signin/toggle', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ enabled })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      loadSigninStatus();
+      console.log(`签到任务已${enabled ? '启用' : '禁用'}`);
+    } else {
+      console.error('操作失败:', data.error);
+      document.getElementById('signinToggle').checked = !enabled;
+    }
+  } catch (error) {
+    console.error('切换签到任务失败:', error);
+    document.getElementById('signinToggle').checked = !enabled;
+  }
+}
+
+// 保存签到配置
+async function saveSigninConfig() {
+  const mode = document.getElementById('signinMode').value;
+  const time = document.getElementById('signinTime').value;
+  
+  try {
+    const response = await fetchWithAuth('/api/signin/config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ mode, time })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      loadSigninStatus();
+      console.log('签到配置已更新');
+    } else {
+      console.error('保存配置失败:', data.error);
+    }
+  } catch (error) {
+    console.error('保存签到配置失败:', error);
+  }
+}
+
+// 立即执行签到
+async function executeSigninNow(event) {
+  if (event) event.preventDefault();
+  
+  const btn = event.target.closest('.task-run-btn');
+  if (btn.disabled) return;
+  
+  btn.disabled = true;
+  const originalHTML = btn.innerHTML;
+  btn.innerHTML = '<div class="spinner-small" style="display: inline-block; margin-right: 0.5rem;"></div>签到中...';
+  
+  try {
+    const response = await fetchWithAuth('/api/signin/execute', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        mode: document.getElementById('signinMode')?.value || 'normal'
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // 成功时显示详细信息
+      let successMsg = '✅ 签到成功！';
+      if (data.message) {
+        successMsg += `\n\n${data.message}`;
+      }
+      if (data.description) {
+        successMsg += `\n${data.description}`;
+      }
+      alert(successMsg);
+      loadSigninStatus();
+    } else {
+      // 失败时显示详细信息
+      let errorMsg = '❌ 签到失败';
+      
+      // 优先显示 message，然后是 error
+      if (data.message) {
+        errorMsg += `\n\n${data.message}`;
+      } else if (data.error) {
+        errorMsg += `\n\n${data.error}`;
+      }
+      
+      // 如果有 description，也显示
+      if (data.description) {
+        errorMsg += `\n\n详情：${data.description}`;
+      }
+      
+      // 如果是已签到，特殊处理
+      if (data.alreadySigned) {
+        errorMsg = '⚠️ 今天已经签到过了';
+        if (data.message) {
+          errorMsg += `\n\n${data.message}`;
+        }
+      }
+      
+      alert(errorMsg);
+    }
+  } catch (error) {
+    console.error('执行签到失败:', error);
+    // 显示更详细的错误信息
+    let errorMsg = '❌ 执行签到失败';
+    if (error.message) {
+      errorMsg += `\n\n错误信息：${error.message}`;
+    }
+    alert(errorMsg);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+  }
+}
+
+// 在 loadSchedulerStatus 函数中添加签到状态加载
+const originalLoadSchedulerStatus = loadSchedulerStatus;
+loadSchedulerStatus = async function() {
+  await originalLoadSchedulerStatus();
+  await loadSigninStatus();
+};

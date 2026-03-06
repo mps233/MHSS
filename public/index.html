@@ -25,7 +25,7 @@
       document.documentElement.setAttribute('data-theme', actualTheme);
     })();
   </script>
-  <link rel="stylesheet" href="style.css?v=66">
+  <link rel="stylesheet" href="style.css?v=69">
   <!-- Preconnect to external resources -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
@@ -976,6 +976,58 @@
           </div>
         </div>
         
+        <!-- 任务卡片 4: HDHive 每日签到 -->
+        <div class="task-card">
+          <div class="task-header">
+            <div class="task-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </div>
+            <div class="task-info">
+              <h4>HDHive 每日签到</h4>
+              <div style="margin-top: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label style="font-size: 13px; color: var(--text-secondary);">签到模式:</label>
+                  <select id="signinMode" class="signin-mode-select" onchange="saveSigninConfig()">
+                    <option value="normal">普通签到</option>
+                    <option value="gamble">赌狗签到</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label style="font-size: 13px; color: var(--text-secondary);">每天</label>
+                  <input type="time" id="signinTime" value="09:00" 
+                    class="signin-time-input"
+                    onchange="saveSigninConfig()">
+                  <label style="font-size: 13px; color: var(--text-secondary);">签到</label>
+                </div>
+              </div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="signinToggle" onchange="toggleSignin(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="task-status">
+            <div class="task-status-left">
+              <span class="status-badge" id="signinStatusBadge">✕ 未启用</span>
+              <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary);">
+                <span id="signinLastTime">上次签到: -</span>
+                <span id="signinNextTime">下次签到: -</span>
+              </div>
+            </div>
+            <div class="task-actions">
+              <button class="task-run-btn" onclick="executeSigninNow(event)" title="立即执行签到">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>立即签到</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
         <!-- 未来可以在这里添加更多任务卡片 -->
         <!-- <div class="task-card">...</div> -->
       </div>
@@ -1023,28 +1075,102 @@
         </div>
       </div>
       
-      <!-- HDHive 模块管理 -->
+      <!-- 积分解锁设置 -->
       <div class="admin-section" style="margin-top: 1.5rem;">
         <div class="admin-section-header">
-          <h4>HDHive 模块管理</h4>
+          <h4>积分解锁设置</h4>
         </div>
         <div style="padding: 1rem; background: rgba(168, 85, 247, 0.05); border-radius: 0.5rem; border: 1px solid rgba(168, 85, 247, 0.1);">
-          <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
-            更新 HDHive 模块到最新版本（从 GitHub 下载）
-          </p>
-          <button class="task-run-btn" onclick="updateHDHiveModule()" style="width: 100%;">
+          <!-- 警告提示 -->
+          <div style="padding: 0.75rem; background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 0.375rem; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: start; gap: 0.5rem;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #eab308;">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <div style="flex: 1;">
+                <p style="color: #eab308; font-size: 0.875rem; font-weight: 500; margin: 0 0 0.25rem 0;">警告</p>
+                <p style="color: var(--text-secondary); font-size: 0.8125rem; margin: 0; line-height: 1.5;">
+                  启用积分解锁会自动消耗您的 HDHive 积分。如果您的积分较少，建议保持此功能关闭，以免积分耗尽。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 启用开关 -->
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(168, 85, 247, 0.1);">
+            <div>
+              <label style="font-weight: 500; color: var(--text-primary); display: block; margin-bottom: 0.25rem;">启用积分解锁</label>
+              <p style="color: var(--text-secondary); font-size: 0.8125rem; margin: 0;">
+                开启后，影巢批量查找和新订阅自动查找可以自动使用积分解锁资源
+              </p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoUnlockEnabled" onchange="saveAutoUnlockSettings()">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 最大积分设置 -->
+          <div style="margin-bottom: 1rem;">
+            <label style="font-weight: 500; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">
+              每个剧最高使用积分
+            </label>
+            <p style="color: var(--text-secondary); font-size: 0.8125rem; margin: 0 0 0.75rem 0;">
+              设置每个剧集最多可以使用多少积分来解锁资源
+            </p>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <input 
+                type="number" 
+                id="maxPointsPerShow" 
+                min="0" 
+                max="100" 
+                value="10"
+                onchange="saveAutoUnlockSettings()"
+                style="flex: 1; padding: 0.5rem 0.75rem; background: var(--bg-secondary); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 0.375rem; color: var(--text-primary); font-size: 0.875rem;"
+              >
+              <span style="color: var(--text-secondary); font-size: 0.875rem; white-space: nowrap;">积分</span>
+            </div>
+          </div>
+
+          <!-- 仅解锁无资源的选项 -->
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(168, 85, 247, 0.1);">
+            <div>
+              <label style="font-weight: 500; color: var(--text-primary); display: block; margin-bottom: 0.25rem;">仅解锁无资源的剧集</label>
+              <p style="color: var(--text-secondary); font-size: 0.8125rem; margin: 0;">
+                开启后，只有完全没有任何一集的剧和电影才会使用积分解锁
+              </p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="onlyUnlockIfNoResources" onchange="saveAutoUnlockSettings()">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 当前积分显示 -->
+          <div style="padding: 0.75rem; background: rgba(168, 85, 247, 0.1); border-radius: 0.375rem; margin-top: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span style="color: var(--text-secondary); font-size: 0.875rem;">当前可用积分</span>
+              <span id="currentPoints" style="color: var(--primary); font-weight: 600; font-size: 1rem;">--</span>
+            </div>
+          </div>
+
+          <!-- 保存按钮 -->
+          <button class="task-run-btn" onclick="saveAutoUnlockSettings()" style="width: 100%; margin-top: 1rem;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
             </svg>
-            更新 HDHive 模块
+            保存设置
           </button>
         </div>
       </div>
+      
     </div>
   </div>
 
-  <script src="script.js?v=69"></script>
+  <script src="script.js?v=73"></script>
 </body>
 </html>
