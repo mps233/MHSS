@@ -1,14 +1,24 @@
-# 使用 Node.js 18 官方镜像（标准版本，包含完整的构建工具）
-FROM node:18
+# 第一阶段：使用标准镜像编译依赖
+FROM node:18 AS builder
 
-# 设置工作目录
 WORKDIR /app
 
 # 复制 package.json 和 package-lock.json
 COPY package*.json ./
 
-# 安装 Node.js 依赖
+# 安装所有依赖（包括需要编译的）
 RUN npm install --production
+
+# 第二阶段：使用 Alpine 镜像运行
+FROM node:18-alpine
+
+WORKDIR /app
+
+# 从构建阶段复制 node_modules
+COPY --from=builder /app/node_modules ./node_modules
+
+# 复制 package.json
+COPY package*.json ./
 
 # 复制项目文件
 COPY . .
